@@ -13,7 +13,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
+        # GitHub Actions deprecated Node 20 as an *action* runtime in Sep 2025
+        # — pnpm 11.x errors with ERR_UNKNOWN_BUILTIN_MODULE when its action
+        # is forced back to Node 20 by the matrix. Node 20 stays supported for
+        # end users (engines: ">=20"); we only test 22 + 24 in CI.
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
         with:
