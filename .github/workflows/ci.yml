@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: lint
+        run: pnpm lint
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: test
+        run: pnpm test
+
+      - name: build
+        run: pnpm build
+
+  codegen-fresh:
+    # Verifies that committed src/generated/* matches what the generator would
+    # produce right now — guards against landing a stale codegen output.
+    name: codegen output is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: regenerate
+        run: |
+          pnpm exec openapi-typescript openapi/openapi.v2.json -o src/generated/types.ts
+          pnpm codegen
+
+      - name: diff committed vs regenerated
+        run: |
+          if ! git diff --quiet src/generated/; then
+            echo "::error::src/generated/ is out of date — run 'pnpm exec openapi-typescript openapi/openapi.v2.json -o src/generated/types.ts && pnpm codegen' and commit the diff"
+            git diff src/generated/
+            exit 1
+          fi

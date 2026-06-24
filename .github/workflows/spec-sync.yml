@@ -1,0 +1,75 @@
+name: spec-sync
+
+on:
+  schedule:
+    # Weekly Monday 09:00 UTC. Catches new public endpoints in hermes-service
+    # without needing a human to remember to pull the spec.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pull-and-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: fetch latest spec from prod proxy
+        run: pnpm fetch-spec
+
+      - name: regenerate types + endpoint wrappers
+        run: |
+          pnpm exec openapi-typescript openapi/openapi.v2.json -o src/generated/types.ts
+          pnpm codegen
+
+      - name: check for diff
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: add changeset for the new spec
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          mkdir -p .changeset
+          cat > .changeset/spec-sync-$(date +%Y%m%d).md <<'EOF'
+          ---
+          "@zoodata/sdk": minor
+          ---
+
+          chore(spec): refresh OpenAPI v2 snapshot from hermes-service
+          EOF
+
+      - name: open PR if changed
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(spec): refresh OpenAPI v2 snapshot"
+          title: "chore(spec): refresh OpenAPI v2 snapshot"
+          body: |
+            Automated spec sync from hermes-service `custom_openapi()` output.
+
+            - `openapi/openapi.v2.json` refreshed
+            - `src/generated/types.ts` regenerated
+            - `src/generated/endpoints.ts` regenerated
+
+            Review the diff for new/removed/changed endpoints before merging.
+          branch: spec-sync/auto
+          delete-branch: true

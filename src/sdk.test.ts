@@ -94,7 +94,11 @@ describe("ZooData wraps HttpClient end-to-end", () => {
     // path is what we're verifying, not the schema (already tested via tsc).
     const result = await c.ecommerce.amazon.products.search({ keyword: "earbuds" } as never);
     expect(body).toEqual({ keyword: "earbuds" });
-    expect((result as { data: { items: { asin: string }[] } }).data.items[0].asin).toBe("B07X");
+    // The real spec returns `data` as an array of typed Product objects; for this
+    // smoke we only care that the runtime path/method/body are correct, so we
+    // cast through unknown to peek at the fake-shape the msw handler returned.
+    const fake = result as unknown as { data: { items: { asin: string }[] } };
+    expect(fake.data.items[0]!.asin).toBe("B07X");
   });
 
   it("account.balance hits GET /openapi/v2/account/balance with no body", async () => {

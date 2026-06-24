@@ -10,8 +10,8 @@
  *  - respects Retry-After (seconds) for 429 retry delay.
  *  - reads X-RateLimit-Remaining + X-RateLimit-Reset and throttles when 0.
  */
-import { describe, it, expect, vi } from "vitest";
-import { http, HttpResponse, delay } from "msw";
+import { describe, it, expect } from "vitest";
+import { http, HttpResponse } from "msw";
 
 import { server } from "./test-setup";
 import { HttpClient } from "./client";
