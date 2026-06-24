@@ -24,7 +24,7 @@ import {
   ZooDataError,
 } from "./errors";
 
-const BASE = "https://api.example.test/openapi/v2";
+const BASE = "https://api.example.test";
 
 function envelope(data: unknown) {
   return {
@@ -51,13 +51,13 @@ describe("HttpClient — request shape", () => {
   it("sends Authorization: Bearer <apiKey>", async () => {
     let captured: string | null = null;
     server.use(
-      http.post(`${BASE}/products/search`, ({ request }) => {
+      http.post(`${BASE}/openapi/v2/products/search`, ({ request }) => {
         captured = request.headers.get("authorization");
         return HttpResponse.json(envelope({ items: [] }));
       }),
     );
     const client = makeClient();
-    await client.request({ method: "POST", path: "/products/search", body: { keyword: "x" } });
+    await client.request({ method: "POST", path: "/openapi/v2/products/search", body: { keyword: "x" } });
     expect(captured).toBe("Bearer hms_test_key");
   });
 
@@ -65,26 +65,26 @@ describe("HttpClient — request shape", () => {
     let body: unknown = null;
     let contentType: string | null = null;
     server.use(
-      http.post(`${BASE}/products/search`, async ({ request }) => {
+      http.post(`${BASE}/openapi/v2/products/search`, async ({ request }) => {
         contentType = request.headers.get("content-type");
         body = await request.json();
         return HttpResponse.json(envelope({ items: [] }));
       }),
     );
     const client = makeClient();
-    await client.request({ method: "POST", path: "/products/search", body: { keyword: "earbuds", pageSize: 50 } });
+    await client.request({ method: "POST", path: "/openapi/v2/products/search", body: { keyword: "earbuds", pageSize: 50 } });
     expect(contentType).toContain("application/json");
     expect(body).toEqual({ keyword: "earbuds", pageSize: 50 });
   });
 
   it("returns parsed JSON on 2xx", async () => {
     server.use(
-      http.get(`${BASE}/account/balance`, () => HttpResponse.json(envelope({ creditsRemaining: 1000 }))),
+      http.get(`${BASE}/openapi/v2/account/balance`, () => HttpResponse.json(envelope({ creditsRemaining: 1000 }))),
     );
     const client = makeClient();
     const result = await client.request<{ success: true; data: { creditsRemaining: number } }>({
       method: "GET",
-      path: "/account/balance",
+      path: "/openapi/v2/account/balance",
     });
     expect(result.data.creditsRemaining).toBe(1000);
   });
@@ -94,14 +94,14 @@ describe("HttpClient — error mapping", () => {
   it("401 → UnauthorizedError, no retry", async () => {
     let calls = 0;
     server.use(
-      http.post(`${BASE}/products/search`, () => {
+      http.post(`${BASE}/openapi/v2/products/search`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("UNAUTHORIZED", "Invalid API key.", "req_x"), { status: 401 });
       }),
     );
     const client = makeClient();
     await expect(
-      client.request({ method: "POST", path: "/products/search", body: {} }),
+      client.request({ method: "POST", path: "/openapi/v2/products/search", body: {} }),
     ).rejects.toBeInstanceOf(UnauthorizedError);
     expect(calls).toBe(1);
   });
@@ -109,13 +109,13 @@ describe("HttpClient — error mapping", () => {
   it("402 → InsufficientCreditsError, no retry", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/account/balance`, () => {
+      http.get(`${BASE}/openapi/v2/account/balance`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("INSUFFICIENT_CREDITS", "Out of credits."), { status: 402 });
       }),
     );
     const client = makeClient();
-    await expect(client.request({ method: "GET", path: "/account/balance" })).rejects.toBeInstanceOf(
+    await expect(client.request({ method: "GET", path: "/openapi/v2/account/balance" })).rejects.toBeInstanceOf(
       InsufficientCreditsError,
     );
     expect(calls).toBe(1);
@@ -124,14 +124,14 @@ describe("HttpClient — error mapping", () => {
   it("422 → ValidationError, no retry", async () => {
     let calls = 0;
     server.use(
-      http.post(`${BASE}/products/search`, () => {
+      http.post(`${BASE}/openapi/v2/products/search`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("INVALID_REQUEST", "Bad fields"), { status: 422 });
       }),
     );
     const client = makeClient();
     await expect(
-      client.request({ method: "POST", path: "/products/search", body: { bad: true } }),
+      client.request({ method: "POST", path: "/openapi/v2/products/search", body: { bad: true } }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(calls).toBe(1);
   });
@@ -139,14 +139,14 @@ describe("HttpClient — error mapping", () => {
   it("504 → UpstreamTimeoutError (no retry on 504, treated as final)", async () => {
     let calls = 0;
     server.use(
-      http.post(`${BASE}/webtools/scrape`, () => {
+      http.post(`${BASE}/openapi/v2/webtools/scrape`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("UPSTREAM_TIMEOUT", "Upstream timed out"), { status: 504 });
       }),
     );
     const client = makeClient();
     await expect(
-      client.request({ method: "POST", path: "/webtools/scrape", body: { url: "x" } }),
+      client.request({ method: "POST", path: "/openapi/v2/webtools/scrape", body: { url: "x" } }),
     ).rejects.toBeInstanceOf(UpstreamTimeoutError);
     expect(calls).toBe(1);
   });
@@ -154,13 +154,13 @@ describe("HttpClient — error mapping", () => {
   it("Unknown 5xx → generic ZooDataError after retries exhausted", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("INTERNAL", "boom"), { status: 500 });
       }),
     );
     const client = makeClient({ retry: { attempts: 2, backoffMs: 1, maxBackoffMs: 5 } });
-    const err = await client.request({ method: "GET", path: "/x" }).catch((e) => e as Error);
+    const err = await client.request({ method: "GET", path: "/openapi/v2/x" }).catch((e) => e as Error);
     expect(err).toBeInstanceOf(ZooDataError);
     expect(err).not.toBeInstanceOf(UnauthorizedError);
     expect(calls).toBe(2);
@@ -171,7 +171,7 @@ describe("HttpClient — retry behavior", () => {
   it("retries on 5xx, succeeds on 2nd attempt", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         calls++;
         if (calls === 1) {
           return HttpResponse.json(errEnvelope("INTERNAL", "boom"), { status: 500 });
@@ -182,7 +182,7 @@ describe("HttpClient — retry behavior", () => {
     const client = makeClient({ retry: { attempts: 3, backoffMs: 1, maxBackoffMs: 5 } });
     const result = await client.request<{ success: true; data: { ok: boolean } }>({
       method: "GET",
-      path: "/x",
+      path: "/openapi/v2/x",
     });
     expect(result.data.ok).toBe(true);
     expect(calls).toBe(2);
@@ -191,7 +191,7 @@ describe("HttpClient — retry behavior", () => {
   it("retries on 429 with Retry-After (seconds)", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         calls++;
         if (calls === 1) {
           return HttpResponse.json(errEnvelope("RATE_LIMITED", "slow"), {
@@ -205,7 +205,7 @@ describe("HttpClient — retry behavior", () => {
     const client = makeClient({ retry: { attempts: 3, backoffMs: 1, maxBackoffMs: 5 } });
     const result = await client.request<{ success: true; data: { ok: boolean } }>({
       method: "GET",
-      path: "/x",
+      path: "/openapi/v2/x",
     });
     expect(result.data.ok).toBe(true);
     expect(calls).toBe(2);
@@ -214,13 +214,13 @@ describe("HttpClient — retry behavior", () => {
   it("after exhausting retries on 429, throws RateLimitError", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("RATE_LIMITED", "slow"), { status: 429 });
       }),
     );
     const client = makeClient({ retry: { attempts: 2, backoffMs: 1, maxBackoffMs: 5 } });
-    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
+    await expect(client.request({ method: "GET", path: "/openapi/v2/x" })).rejects.toBeInstanceOf(
       RateLimitError,
     );
     expect(calls).toBe(2);
@@ -229,13 +229,13 @@ describe("HttpClient — retry behavior", () => {
   it("does NOT retry on 4xx (other than 429)", async () => {
     let calls = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         calls++;
         return HttpResponse.json(errEnvelope("UNAUTHORIZED", "no"), { status: 401 });
       }),
     );
     const client = makeClient({ retry: { attempts: 5, backoffMs: 1, maxBackoffMs: 5 } });
-    await expect(client.request({ method: "GET", path: "/x" })).rejects.toBeInstanceOf(
+    await expect(client.request({ method: "GET", path: "/openapi/v2/x" })).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
     expect(calls).toBe(1);
@@ -252,7 +252,7 @@ describe("HttpClient — rate-limit throttling", () => {
     let secondAt = 0;
     let count = 0;
     server.use(
-      http.get(`${BASE}/x`, () => {
+      http.get(`${BASE}/openapi/v2/x`, () => {
         count++;
         const now = Date.now();
         if (count === 1) firstAt = now;
@@ -266,15 +266,15 @@ describe("HttpClient — rate-limit throttling", () => {
       }),
     );
     const client = makeClient();
-    await client.request({ method: "GET", path: "/x" });
-    await client.request({ method: "GET", path: "/x" });
+    await client.request({ method: "GET", path: "/openapi/v2/x" });
+    await client.request({ method: "GET", path: "/openapi/v2/x" });
     const gap = secondAt - firstAt;
     expect(gap).toBeGreaterThanOrEqual(500);
   }, 5000);
 });
 
 describe("HttpClient — defaults", () => {
-  it("uses default baseUrl https://api.zoodata.ai/openapi/v2 when not specified", async () => {
+  it("uses default baseUrl https://api.zoodata.ai when not specified", async () => {
     let url: string | null = null;
     server.use(
       http.get("https://api.zoodata.ai/openapi/v2/account/balance", ({ request }) => {
@@ -283,7 +283,7 @@ describe("HttpClient — defaults", () => {
       }),
     );
     const client = new HttpClient({ apiKey: "hms_x" });
-    await client.request({ method: "GET", path: "/account/balance" });
+    await client.request({ method: "GET", path: "/openapi/v2/account/balance" });
     expect(url).toBe("https://api.zoodata.ai/openapi/v2/account/balance");
   });
 });

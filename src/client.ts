@@ -36,7 +36,7 @@ export interface RequestOptions {
   query?: Record<string, unknown>;
 }
 
-const DEFAULT_BASE_URL = "https://api.zoodata.ai/openapi/v2";
+const DEFAULT_BASE_URL = "https://api.zoodata.ai";
 const DEFAULT_RETRY: Required<RetryOptions> = {
   attempts: 3,
   backoffMs: 200,
