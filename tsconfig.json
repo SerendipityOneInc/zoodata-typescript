@@ -15,7 +15,6 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "./dist",
-    "rootDir": "./src",
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts"],
