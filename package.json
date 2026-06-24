@@ -1,0 +1,68 @@
+{
+  "name": "@zoodata/sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK for ZooData — query Amazon, TikTok, and the open web from your code",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./openapi.json": "./openapi/openapi.v2.json"
+  },
+  "files": [
+    "dist",
+    "openapi/openapi.v2.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "fetch-spec": "tsx scripts/fetch-spec.ts",
+    "codegen": "tsx scripts/codegen.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ky": "^1.7.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "msw": "^2.6.0",
+    "openapi-typescript": "^7.0.0",
+    "prettier": "^3.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.0"
+  },
+  "keywords": [
+    "zoodata",
+    "amazon",
+    "tiktok",
+    "scraping",
+    "ecommerce",
+    "api",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SerendipityOneInc/zoodata-typescript.git"
+  },
+  "homepage": "https://zoodata.ai",
+  "bugs": "https://github.com/SerendipityOneInc/zoodata-typescript/issues"
+}
