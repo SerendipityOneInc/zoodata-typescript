@@ -243,8 +243,11 @@ describe("HttpClient — retry behavior", () => {
 });
 
 describe("HttpClient — rate-limit throttling", () => {
-  it("delays next request when X-RateLimit-Remaining: 0 and Reset is in the near future", async () => {
-    const futureSec = Math.floor(Date.now() / 1000) + 1; // ~1 second window
+  it("delays next request when X-RateLimit-Remaining: 0 and Reset is in the future", async () => {
+    // +3 second buffer keeps the test deterministic across subsecond timing:
+    // even if the test starts at 0.999s of a wall-clock second, the throttle
+    // still waits >=2s before req2.
+    const futureSec = Math.floor(Date.now() / 1000) + 3;
     let firstAt = 0;
     let secondAt = 0;
     let count = 0;
@@ -255,9 +258,10 @@ describe("HttpClient — rate-limit throttling", () => {
         if (count === 1) firstAt = now;
         else secondAt = now;
         return HttpResponse.json(envelope({ count }), {
-          headers: count === 1
-            ? { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(futureSec) }
-            : { "X-RateLimit-Remaining": "59", "X-RateLimit-Reset": String(futureSec) },
+          headers:
+            count === 1
+              ? { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": String(futureSec) }
+              : { "X-RateLimit-Remaining": "59", "X-RateLimit-Reset": String(futureSec) },
         });
       }),
     );
@@ -265,7 +269,7 @@ describe("HttpClient — rate-limit throttling", () => {
     await client.request({ method: "GET", path: "/x" });
     await client.request({ method: "GET", path: "/x" });
     const gap = secondAt - firstAt;
-    expect(gap).toBeGreaterThanOrEqual(500); // throttled at least ~half the window
+    expect(gap).toBeGreaterThanOrEqual(500);
   }, 5000);
 });
 
