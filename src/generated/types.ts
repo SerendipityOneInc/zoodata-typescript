@@ -13,7 +13,7 @@ export interface paths {
         };
         /**
          * Get account billing balance
-         * @description Returns the authenticated user's billing balance. CONTRACT-tier (USD wallet) customers receive a `usd` view; all other tiers receive a `credits` view in external decimal credits.
+         * @description Returns the authenticated user's billing balance. CONTRACT-tier (USD wallet) customers receive a `usd` view; all other tiers receive a `credits` view in external decimal credits — plus a `usd` block with the granted/topped_up wallet split when the account owns a USD wallet (self-serve top-up).
          *
          *     Polling this endpoint is the only way for CONTRACT-tier customers to observe their USD balance — per-call responses on other endpoints intentionally omit balance fields (ADR-0005 §5).
          */
@@ -36,17 +36,40 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Products Search V2
-         * @description Search Amazon products by keyword, category, and multi-dimensional filters.
+         * Search Amazon products
+         * @description 1. Function
          *
-         *     Use this to discover products in a specific niche, analyze competitor listings,
-         *     or find high-demand low-competition opportunities. Example: search "yoga mat"
-         *     in Sports & Outdoors with monthlySalesFloor >= 500 and price <= $30 to find
-         *     proven sellers in an affordable range. Data is based on the latest daily
-         *     snapshot; results are paginated (max 100 per page).
-         *     Related: /products/competitors for competitor analysis, /products/history for trends.
+         *     Discover candidate Amazon products by keyword, category and business metrics, returning a paginated list of the shared Product model (max 100 per page). Reads the catalog snapshot: omit dateRange or pass 'Nd' for the latest daily snapshot, or 'YYYY-MM' for that month's month-end snapshot (earliest 2026-02). Filters include price, monthly sales and revenue floors, growth rates, BSR and its 7-day change, rating, seller count, brand and seller lists, badges, fulfillment, package weight in ounces, package size tier, Buy Box seller country, gross margin rate and category scope. Setting any range or list filter excludes products whose value is unknown, so a narrower result set is a coverage effect, not a market finding. categoryScope=includeChildren (default) matches the given category levels and every subcategory; exactOnly requires the product's path to end at the last given level. monthlySalesFloor is the page's 'N+ bought in past month' figure carried forward by the catalog snapshot, a lower bound rather than an estimate. Billing: 1 credit per request.
+         *
+         *     2. Use cases
+         *
+         *     Use search to find products you do not know yet — niche discovery, competitor screening, filtering by margin or growth. Use /products/detail to read ASINs or a parent's variants you already know; it takes no filters. Use /products/competitors for competitor lookup around one ASIN, and /markets/search for category-level demand and competition.
          */
         post: operations["openapi_v2_products_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/products/leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Products Leaderboard V2
+         * @description Return a product-level Top-N leaderboard for a category.
+         *
+         *     `sales` ranks by monthly sales, `surging` by sales growth, and
+         *     `newRelease` ranks Amazon New Release products by monthly sales.
+         *     Related: /products/search for custom filters and sorting.
+         */
+        post: operations["openapi_v2_products_leaderboard"];
         delete?: never;
         options?: never;
         head?: never;
@@ -89,17 +112,68 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Product History V2
-         * @description Get historical time-series data for a single ASIN over a date range.
+         * Get a product's day-by-day page history
+         * @description 1. Function
          *
-         *     Returns columnar arrays: high-frequency metrics (price, BSR, sales,
-         *     rating, sellerCount) as daily arrays aligned with timestamps, and low-frequency
-         *     fields (title, imageUrl, badges, inventoryStatus) as changelog entries that
-         *     only record changes.
-         *     Max date range: 730 days.
-         *     Related: /products/search to discover ASINs first.
+         *     Return what one ASIN's product page showed on each observation day in a date range of up to 730 days. Per-point series (price, bsr, subBsr, monthlySalesFloor, rating, ratingCount, sellerCount) are aligned with timestamps; change series (title, imageUrl, bestSeller, amazonChoice, newRelease, aPlus, inventoryStatus, bsrCategory, subBsrCategory, parentAsin) record an entry only when the value changes. timestamps are observation days, not a continuous calendar: days can be missing, and a per-point value is not guaranteed to be that day's direct observation, so read the series as a trend. latest holds the parent ASIN, title and image last observed in the window; context echoes the requested window and the observed one. This endpoint is page-observation only — no revenue, growth rates or parent totals. Its monthlySalesFloor is that day's page text, which can differ from the catalog-snapshot value returned by /products/search. aspects trims the response to the listed series. asin must be canonical (^[A-Z0-9]{10}$); lowercase is rejected with 422 asin_must_be_normalized. No observation in the window returns data null. Billing: 1 credit per request.
+         *
+         *     2. Use cases
+         *
+         *     Use history to see how a listing changed day by day — a price move, a badge won or lost, a rank category renamed, a variant moved to another parent. Use /products/sales-trend for monthly sales and revenue on the catalog-snapshot basis, and /products/detail for the product's current facts.
          */
         post: operations["openapi_v2_products_history"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/products/sales-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a product's monthly sales trend
+         * @description 1. Function
+         *
+         *     Return monthly sales and revenue floors for one ASIN and its parent, one point per month, on the same catalog-snapshot basis as /products/search. A finished month (pointKind=monthEnd) comes from that month's last-day snapshot and no longer changes; the current month (monthToDate) follows the latest snapshot and updates daily. Every month in the window has a point, so the series never skips a month. inCatalog=false means the product is not in that month's snapshot and every metric is null; inCatalog=true with a null monthlySalesFloor means it is in the catalog without a sales figure — the two nulls mean different things. Money is USD. The four MoM growth rates compare adjacent month-ends and are computed by the server; they are null for monthToDate points and whenever the previous month is missing, null or not above zero. Data starts at 2026-02; the default window is the latest 12 months but never earlier than that, and a window spans at most 24 months. Billing: 1 credit per request, independent of window length.
+         *
+         *     2. Use cases
+         *
+         *     Use sales-trend to judge whether a product is selling better or worse month over month, and whether the move is the product's own or the whole parent's. Use /products/history for what the page showed on a given day, and /products/detail for the product's current facts.
+         */
+        post: operations["openapi_v2_products_sales_trend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/products/detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read products by ASIN or parent
+         * @description 1. Function
+         *
+         *     Read catalog facts for products you already know, in one of two mutually exclusive modes, both returning the shared Product model. asins mode takes 1 to 50 canonical ASINs and answers in request order; an ASIN missing from the snapshot comes back as status=empty with emptyReason=asin_not_found rather than being dropped. parentAsin mode pages through every product under one parent, ordered by monthlySalesFloor descending (nulls last) then asin. Omit dateRange for the latest daily snapshot or pass 'YYYY-MM' for a month-end snapshot; context.resolvedDate names the snapshot actually read, and is null when the serving index does not record it. No filters and no sort options — this is an exact read. Validation failures return 422 with a stable reason code in the message: asins_or_parent_asin_required, asins_and_parent_asin_exclusive, asin_must_be_normalized, duplicate_asins, asins_limit_exceeded, pagination_not_allowed_in_asins_mode, date_range_invalid. Billing: asins mode charges 1 credit per status=ok item, parentAsin mode 1 credit per request.
+         *
+         *     2. Use cases
+         *
+         *     Use detail to read a known ASIN list — competitors supplied by the user, a watchlist, ASINs returned by another tool — or to enumerate a parent's variants. Use /products/search to discover ASINs by condition, /openapi/v3/realtime/product for live page data instead of the daily snapshot, and /products/history or /products/sales-trend for how a product changed over time.
+         */
+        post: operations["openapi_v2_products_detail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -116,16 +190,104 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Markets Search V2
-         * @description Search market data by category with aggregated demand, competition, and pricing metrics.
+         * Search category markets
+         * @description 1. Function
          *
-         *     Use this to evaluate market size and competition before entering a niche.
-         *     Example: search "Pet Supplies" with sampleAvgMonthlySalesMin >= 200 to find
-         *     categories with proven demand. Data is based on top-100 product samples per
-         *     category from the latest daily snapshot; results paginated (max 100 per page).
-         *     Related: /products/search for product-level data in a category.
+         *     Find a paginated list of US Amazon category markets. Each data[] row contains the category identity and current market measures grouped by statistical scope. data[].marketTotal contains full-category measures; data[].marketSample contains selected Top 100 sales, per-product averages and competition. productTopNMetrics[] and brandTopNMetrics[] each have one row for N=3/5/10/20. Both return avgBsr, avgMonthlySales, avgMonthlyRevenue, monthlySales, monthlyRevenue, monthlySalesRate and monthlyRevenueRate. Product rows also return productTopN and topNSkuCount; brand rows return brandTopN and topNBrandCount. Each row selects the leading products or brands by monthly unit sales; productTopN and brandTopN are rank cutoffs, topNSkuCount is the actual number of selected products, and topNBrandCount is the actual number of selected brands. Brand averages are per product in the selected brands. Both statistical scopes return newProductMetrics[] for 1/3/6/12 calendar-month windows. marketTotal returns new-SKU count, share of all category SKUs, monthly sales, and monthly revenue for each window; marketSample additionally returns averages and shares. meta.total is the number of matching markets.
+         *
+         *     2. Use cases
+         *
+         *     Use search to compare markets by size, per-product sales, price, BSR, package weight or volume, ratings, gross margin, fulfillment, new-product performance or Top N concentration in one call. All filters apply before pagination. topN selects the group used by generic Top N filters; newProductPeriod selects the window used by generic new-product filters and sorting. Neither selector limits the response arrays. Sample sales and revenue filters use per-product averages so markets with different actual sample counts remain comparable. Use category.ids to select multiple market rows by category ID. category.includeDescendantCategoryProducts controls whether each row's product metrics include descendant categories and defaults to true. Alternatively, use a complete category.path or exact category.name; omit all locators to search every market. category.name filters by the exact node name and may return multiple market IDs. For fuzzy category discovery, use /categories. Use structure-profile for its distributions or history for its time series.
+         *
+         *     3. Example
+         *
+         *     Call with {"category":{"ids":["1045564","1234567"],"includeDescendantCategoryProducts":true},"filters":{"sampleAvgMonthlySalesMin":1500,"sampleAvgGrossMarginRateMin":0.2,"topNProductMonthlySalesRateMax":0.5},"sampleType":"unitSalesTop100","topN":"10","newProductPeriod":"3","page":1}. Read data[].categoryId, data[].marketTotal.monthlySales, data[].marketTotal.newProductMetrics[], data[].marketSample.avgMonthlySales, data[].marketSample.productTopNMetrics[], data[].marketSample.brandTopNMetrics[], data[].marketSample.newProductMetrics[] and meta.total.
+         *
+         *     4. Data range
+         *
+         *     US only. Each category ID yields its own market row. By default, its product measures include products assigned directly to the category and its descendants without duplicates; set category.includeDescendantCategoryProducts=false to count only directly assigned products. Top 100 is selected by monthly unit sales or revenue. If date is omitted, the latest available snapshot is used; data[].date gives its actual date. category.path resolves the complete path to one category ID before search; category.name matches the node name exactly. Historical flat requests, including categoryKeyword, remain accepted through Pydantic. New requests use /categories for fuzzy name discovery. Legacy dateRange remains accepted but is not part of the published request schema. Top N and new-product filters use topN and newProductPeriod respectively. Gross-margin rates use decimals from 0 to 1; monetary filters use USD.
+         *
+         *     5. New-product definition
+         *
+         *     For each newProductMetrics[] item with periodMonths=N, a product is new only when its business launch date is later than data.date minus N calendar months and no later than data.date. The business launch date prefers Amazon Date First Available; when unavailable, it uses the earliest valid SKU first-observed date, SKU first-review date, or parent-product first-review date. A missing business launch date is not classified as new; the product still remains in the product-count denominator. Search returns all four windows so an Agent can compare short- and long-window new-product activity without additional calls.
          */
         post: operations["openapi_v2_markets_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/markets/structure-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get market structure profile
+         * @description 1. Function
+         *
+         *     Return one selected Top 100 product distribution for one US category market. The required dimension parameter selects exactly one of brand, seller, price, sellerCountry, fulfillment, ratingCount, rating, listingAge, listingYear or productFeature. The response echoes data.dimension and returns its groups in data.buckets[], including product count, estimated sales and revenue, Amazon self-operated contributions within each group, 1/3/6/12-calendar-month new-product measures, and example ASINs. Products that do not fit a named business group belong to the other/unclassified group.
+         *
+         *     2. Use cases
+         *
+         *     Use structure-profile to inspect one grouping behind the market metrics; call it again with another dimension when needed. Use search for overall metrics and history for changes over time.
+         *
+         *     3. Example
+         *
+         *     Call with {"categoryId":"1045564","includeDescendantCategoryProducts":true,"sampleType":"unitSalesTop100","dimension":"price"}. Read data.dimension="price", data.sampleSkuCount, data.buckets[].skuRate, data.buckets[].revenueRate and data.buckets[].amazonSelfOperatedRevenueRate. The bucket product counts add up to data.sampleSkuCount.
+         *
+         *     4. Data range
+         *
+         *     US only. Buckets describe the selected Top 100 products for the resolved data.date, not all products in the category. Product shares use the actual selected product count; sales and revenue shares use their respective valid totals for that same sample. Shares total 1 when the denominator is positive, subject to rounding. Each bucket returns all four new-product windows so an Agent can compare them without additional calls.
+         *
+         *     5. New-product definition
+         *
+         *     For each bucket newProductMetrics[] item with periodMonths=N, a product is new only when its business launch date is later than data.date minus N calendar months and no later than data.date. The business launch date prefers Amazon Date First Available; when unavailable, it uses the earliest valid SKU first-observed date, SKU first-review date, or parent-product first-review date. Products without a business launch date are not counted as new, but remain in the bucket product-count denominator.
+         */
+        post: operations["openapi_v2_markets_structure_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/markets/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get market history
+         * @description 1. Function
+         *
+         *     Return data.points[] in ascending date order for one US category market. Each point groups full-category measures under marketTotal and selected Top 100 measures under marketSample, including size, estimated monthly sales and revenue, plus 1/3/6/12-calendar-month new-product measures. For each period, marketTotal contains new-SKU count, share of all category SKUs, monthly sales, and monthly revenue; marketSample also contains averages and shares.
+         *
+         *     2. Use cases
+         *
+         *     Use history to inspect observed market changes over time. Use search for a current snapshot and structure-profile with a selected date for distribution evidence.
+         *
+         *     3. Example
+         *
+         *     Call with {"categoryId":"1045564","includeDescendantCategoryProducts":true,"sampleType":"unitSalesTop100","dateFrom":"2026-08-01","dateTo":"2026-09-14"}. Read data.points[].date, data.points[].marketTotal.monthlyRevenue, data.points[].marketSample.monthlyRevenue and data.resolvedDateFrom/data.resolvedDateTo.
+         *
+         *     4. Data range
+         *
+         *     US only. Returns available month-end snapshots inside the requested inclusive range; missing months are not filled. An empty points list means no month-end snapshot was found in that range.
+         *
+         *     5. New-product definition
+         *
+         *     At each point date and for each newProductMetrics[] item with periodMonths=N, a product is new only when its business launch date is later than that date minus N calendar months and no later than that date. The business launch date prefers Amazon Date First Available; when unavailable, it uses the earliest valid SKU first-observed date, SKU first-review date, or parent-product first-review date. Products without a business launch date are not counted as new.
+         */
+        post: operations["openapi_v2_markets_history"];
         delete?: never;
         options?: never;
         head?: never;
@@ -157,7 +319,9 @@ export interface paths {
          *     - parentCategoryPath: Get children of parent category by path
          *     - categoryKeyword: Search categories by keyword
          *
-         *     Related: /products/search and /markets/search accept categoryPath for filtering.
+         *     Related: /products/search accepts categoryPath. /markets/search uses exactly one of category.ids,
+         *     category.path, or category.name; category.includeDescendantCategoryProducts controls whether each market's
+         *     metrics include descendant-category products.
          */
         post: operations["openapi_v2_categories"];
         delete?: never;
@@ -182,7 +346,7 @@ export interface paths {
          *     Cursor-based pagination: omit cursor for the first page, then pass nextCursor
          *     from the previous response for subsequent pages. nextCursor=null means no
          *     more data. Related: /reviews/search for review data with AI tags,
-         *     /reviews/analysis for aggregated insights.
+         *     /voc/analysis for aggregated insights.
          */
         post: operations["openapi_v2_realtime_reviews"];
         delete?: never;
@@ -191,7 +355,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/openapi/v2/reviews/analysis": {
+    "/openapi/v2/realtime/bestsellers": {
         parameters: {
             query?: never;
             header?: never;
@@ -201,16 +365,16 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reviews Analyze V2
-         * @description Analyze reviews by ASIN list or category to surface AI-generated sentiment, ratings, and consumer intelligence.
+         * Realtime Bestsellers V2
+         * @description Get the current Best Sellers (BSR-ranked) products for an Amazon category.
          *
-         *     Use this to understand customer satisfaction and common complaints before
-         *     sourcing a product. Example: pass asins=["B07FR2V8SH"] with period="6m"
-         *     for 6-month review analysis.
-         *     Data sourced from review analysis pipeline; ASIN mode supports max 100 ASINs.
-         *     Related: /products/search to find ASINs, /categories for category paths.
+         *     Data is collected on demand (typically 2-5s latency). Provide either
+         *     categoryId (Amazon category node id, e.g. 172282) or categoryPath
+         *     (e.g. ["Electronics"]); page 1 = ranks 1-50, page 2 = 51-100. Discover
+         *     category ids via /categories. Related: /products/search for daily catalog
+         *     data.
          */
-        post: operations["openapi_v2_reviews_analysis"];
+        post: operations["openapi_v2_realtime_bestsellers"];
         delete?: never;
         options?: never;
         head?: never;
@@ -227,16 +391,144 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reviews Search V2
-         * @description Search reviews for an ASIN with multi-dimensional filters.
+         * Search a product's reviews
+         * @description 1. Function
          *
-         *     Filters: star rating range, verified purchase, Vine program, helpful vote count,
-         *     date range, and AI-generated tags. Results sorted by recent/rating/helpfulVoteCount.
-         *     Page-based pagination (default 10 per page, max 20).
-         *     Data sourced from daily BigQuery snapshot with AI-generated tags.
-         *     Related: /realtime/reviews for live data, /reviews/analysis for aggregated insights.
+         *     Return individual review texts with their AI-generated tags for one ASIN, page by page (default 10 per page, max 20). The reviews are those of the parent the ASIN belongs to, not only of that child ASIN. Filters: star rating range, verified purchase, Vine program, helpful vote count, review date range and mediaTypes; all filters combine with AND. mediaTypes=['image'] keeps reviews with at least one image — about 8% of stored reviews carry images and reviews added since 2026-08-30 currently carry none, so it mainly matches older reviews; video filtering is not offered, and on this endpoint videos[].url holds the video's cover image rather than a playable address. Tags are returned on each review but cannot be filtered on. Sort by recent, rating or helpfulVoteCount. At most 5000 reviews of a parent are read before filtering, so meta.total can be capped for very large parents. Reviewer identity is not returned. Billing: 1 credit per request.
+         *
+         *     2. Use cases
+         *
+         *     Use search to quote the reviews behind a finding — e.g. the low-star reviews of the month where /voc/trend shows a pain point rising. Use /voc/analysis for the aggregated demand profile and /voc/trend for how it changes over time; both return aggregates only. Use /realtime/reviews for the newest reviews currently shown on the product page.
          */
         post: operations["openapi_v2_reviews_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/voc/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Voc Analyze V2
+         * @description Voice-of-Customer analysis by ASIN list or category: aggregated sentiment, ratings, and consumer intelligence.
+         *
+         *     Returns aggregate insights only — sentiment distribution, rating breakdown,
+         *     pain points, buying factors, usage scenarios, and consumer profiles. No
+         *     individual review text or reviewer identity is included. Example: pass
+         *     asins=["B07FR2V8SH"] with period="6m" for a 6-month VoC profile.
+         *     ASIN mode supports max 100 ASINs.
+         *     Related: /products/search to find ASINs, /categories for category paths,
+         *     /reviews/search for per-review data with AI tags.
+         */
+        post: operations["openapi_v2_voc_analysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/voc/trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get the review and demand-tag trend
+         * @description 1. Function
+         *
+         *     Return how reviews and demand tags change over time for one ASIN set or one category: one point per week (Monday to Sunday, UTC) or month, each with reviewCount, average rating, rating distribution, sentiment counts and rates, and the count and share of the window's top tags per dimension (default painPoints, scenarios, buyingFactors; topN 1-30, default 10). Same scope and merge rules as /voc/analysis: ASIN mode covers every review of the parents the ASINs belong to (several ASINs of one parent count once; context.resolvedAsins lists the ASINs that took part), and the points' reviewCount sums to /voc/analysis reviewCount for the same window. Tags are chosen by their count over the whole window, so every point reports the same tag set and a missing tag shows count 0. Every period of the window has a point; a period without reviews has reviewCount 0 and null metrics. reviewCount is the number of reviews that were tagged and entered the statistics, not total review volume, and coverage rises year over year — do not read a rising reviewCount as growing review volume. avgRating is computed from tagged reviews only and runs about 0.01 star below the average over all reviews, so a period-to-period change of that size is not a real change; whether sentiment and tag shares carry a similar bias has not been verified. Samples are sparse: most single parents have fewer than 5 tagged reviews in a week or month, so points below lowSampleThreshold carry lowSample=true and context.lowSamplePeriodCount counts them. Window: dateFrom+dateTo, or period (default 6m, resolved like /voc/analysis), widened to whole periods; at most 25 months or 52 weeks, so weekly granularity takes period up to 6m (1y and 2y are rejected with period_limit_exceeded — give explicit dates or use monthly); not before 2024-01-01 (date_before_coverage). Category mode is monthly only. context.snapshotDate is the statistics partition actually read. Aggregates only — no review text and no reviewer identity. Billing: 1 credit per request.
+         *
+         *     2. Use cases
+         *
+         *     Use trend to tell whether a complaint, a usage scenario or sentiment is rising or fading, and whether a burst of low ratings was a one-off. Weekly points are meaningful only for top products or larger ASIN sets. Use /voc/analysis for the full demand profile of one window (all 11 tag dimensions), and /reviews/search with dateStart/dateEnd to read the reviews behind a period. Compare two ASIN sets by calling this endpoint once per set.
+         */
+        post: operations["openapi_v2_voc_trend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/voc-watchlist/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an ASIN to your review watchlist
+         * @description Save an ASIN to your review watchlist — the shortlist of products you monitor for customer feedback.
+         *
+         *     Once an ASIN is on the list, analyze it any time with /voc/analysis
+         *     (aggregated Voice-of-Customer insights) or /reviews/search (per-review
+         *     data). Idempotent: adding an ASIN already on the list is a no-op and does
+         *     not count against the cap. Up to 100 ASINs per account, shared across the
+         *     Web Console and the API. Free of charge.
+         *     Related: /voc/analysis, /reviews/search.
+         */
+        post: operations["openapi_v2_voc_watchlist_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/voc-watchlist/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * List the ASINs in your review watchlist
+         * @description List the ASINs on your review watchlist, newest first.
+         *
+         *     Use this to see which products you're monitoring, then drive
+         *     Voice-of-Customer analysis over them with /voc/analysis. Shared with the
+         *     Web Console. Free of charge.
+         *     Related: /voc/analysis.
+         */
+        post: operations["openapi_v2_voc_watchlist_list"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/voc-watchlist/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove an ASIN from your review watchlist
+         * @description Remove an ASIN from your review watchlist.
+         *
+         *     Drops the product from your monitored shortlist. Free of charge.
+         */
+        post: operations["openapi_v2_voc_watchlist_remove"];
         delete?: never;
         options?: never;
         head?: never;
@@ -632,6 +924,138 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/openapi/v2/keywords/product-traffic-terms-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get product traffic-term trend
+         * @description 1. Function
+         *
+         *     Per-keyword weekly traffic data for one ASIN; not ASIN-level aggregate traffic. Return weekly traffic-term timelines for an ASIN and up to 20 keywords, with a maximum 26-week range; the actual end date is `resolvedDateTo`. Results split impressions, positions, and ad activity by ORG/SP/SB/SBV/SPR; only `status=ok` items are charged.
+         *
+         *     2. Use cases
+         *
+         *     Inspect when selected keywords gained or lost traffic for one ASIN and compare placements and ad activity. Use product-traffic-trend for the ASIN's overall weekly raw data.
+         */
+        post: operations["openapi_v2_product_traffic_terms_trend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/product-traffic-structure-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get product traffic structure profile
+         * @description 1. Function
+         *
+         *     ASIN traffic structure and change drivers comparing the current week with the previous week; not a multi-week trend profile. Return current- and previous-week traffic profiles for up to 20 ASINs; the actual date is `resolvedDate`, and only `status=ok` items are charged.
+         *
+         *     2. Use cases
+         *
+         *     Investigate week-over-week traffic changes using placement structure and keyword contributions. Use product-traffic-trend-profile for precomputed four-week conclusions or product-traffic-trend for weekly raw data.
+         */
+        post: operations["openapi_v2_product_traffic_structure_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/product-traffic-terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get product traffic terms
+         * @description 1. Function
+         *
+         *     Return the target ASIN's traffic-keyword list for a single weekly snapshot, with filtering, sorting and pagination. Includes impression points, positions, traffic shares, estimated searches and ABA ranks; resolvedDate is the actual snapshot date. This is current-period discovery data, not a trend or time-series endpoint.
+         *
+         *     2. Use cases
+         *
+         *     Discover the target ASIN's current traffic-driving keywords, for either your own product or a competitor. Then pass selected keywords to product-traffic-terms-trend for their weekly history, or use product-traffic-trend for ASIN-level weekly totals.
+         */
+        post: operations["openapi_v2_product_traffic_terms"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/product-traffic-trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get product traffic trend
+         * @description 1. Function
+         *
+         *     ASIN-level weekly raw traffic data across all keywords; no keyword dimension. Return up to 26 complete Sunday-Saturday periods for up to 20 ASINs. Includes total, organic and advertising impression points, keyword coverage and distributions. Impression points are estimated traffic scores, not actual impression counts. Read items[].status before series; missing weeks are not filled with zero. Items follow request order; missing ASINs remain as empty items. Only status=ok ASINs are charged.
+         *
+         *     2. Use cases
+         *
+         *     Plot and compare ASIN-level weekly traffic and keyword coverage, and locate changing weeks. Use product-traffic-terms-trend for per-keyword data, or product-traffic-trend-profile for precomputed four-week conclusions.
+         */
+        post: operations["openapi_v2_product_traffic_trend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/product-traffic-trend-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get product traffic trend profile
+         * @description 1. Function
+         *
+         *     ASIN-level precomputed four-week traffic conclusions. Return traffic trend profiles for up to 20 ASINs. Only windowPeriods=[4] is currently supported and is the default when omitted. Includes impression, keyword-coverage and distribution evidence with metric directions. Items and window rows follow request order. Charge each ASIN once when at least one row has status=ok; empty profiles are free. The actual snapshot date is resolvedDate. detailLevel defaults to summary: core traffic and keyword coverage with component status, classifications, first/last values and change rates. Request full for placement/distribution breakdowns and all evidence. The mode is echoed in context.detailLevel and changes neither the query nor billing. Read items[].rows[].status (not items[].status), then component supported/calculationStatus before metrics; null is unavailable, not zero. Use trend as the overall conclusion and trendEvidence as its supporting metrics, not as a forecast or causal explanation. Impression points are estimated traffic scores, not actual impression counts. Share changes are absolute decimal differences: 0.05 means +5 percentage points; change rates are relative: 0.05 means +5%. Do not compare normalized slope magnitudes across ASINs or interpret them as percentage growth; the formula is not specified here.
+         *
+         *     Window validation failures return HTTP 422 VALIDATION_ERROR with supportedValues, suggestedValue and hint in error.details.errors; no query runs and no credits are consumed.
+         *
+         *     2. Use cases
+         *
+         *     Summarize an ASIN's observed four-week traffic and keyword-coverage direction. Use product-traffic-trend for weekly raw data, product-traffic-structure-profile for adjacent-week structure and contributions, and detailLevel=full when detailed evidence is needed.
+         */
+        post: operations["openapi_v2_product_traffic_trend_profile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/openapi/v2/keywords/detail": {
         parameters: {
             query?: never;
@@ -642,10 +1066,42 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 查询关键词详情
-         * @description 返回单个关键词在指定日期下的核心搜索、竞争与广告指标。
+         * Get keyword detail
+         * @description 1. Function
+         *
+         *     Return a single-week raw statistical snapshot for one or more keywords: search demand, competition and advertising metrics from the latest available week on or before date. The observed period is reported in context.dataWindow; resolvedDate is the actual snapshot date. Both single and batch requests return data.context + data.items[]. This is snapshot data, not a scored market assessment.
+         *
+         *     2. Use cases
+         *
+         *     Use detail to compare current raw metrics when screening candidate keywords. Use market-profile for market scores, levels and interpretations; use trend for raw weekly history.
          */
         post: operations["openapi_v2_keyword_detail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/market-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get keyword market profile
+         * @description 1. Function
+         *
+         *     Get multidimensional keyword profile metrics for one or more keywords on a specific snapshot date, including demand scale, Top 3 concentration, ad activity, organic entry difficulty, supply saturation, brand structure, and organic product benchmarks. Results are returned in request keyword order; single-keyword requests also return data.context + data.items[]. Batch requests are ultimately billed by the number of keywords with status=ok, and the actual charge is returned in meta.creditsConsumed.
+         *
+         *     2. Use cases
+         *
+         *     Assess market entry conditions and compare demand, concentration, brand structure and organic benchmarks across candidate keywords. Use detail for the underlying snapshot metrics.
+         */
+        post: operations["openapi_v2_keyword_market_profile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -662,10 +1118,42 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 查询关键词趋势
-         * @description 返回关键词在指定时间区间内按周粒度统计的时间序列趋势指标，即返回 `dateFrom` 到 `dateTo` 之间的快照数据。
+         * Get keyword trend
+         * @description 1. Function
+         *
+         *     Return raw weekly time-series data for one or more keywords between dateFrom and dateTo, not precomputed trend conclusions. Both single and batch requests return data.context + data.items[].series[]. The date range cannot exceed 93 days; split longer history into multiple requests.
+         *
+         *     2. Use cases
+         *
+         *     Use trend to plot weekly search demand and ranking history or inspect when changes occurred. Use trend-profile for precomputed direction, volatility and supporting evidence over fixed windows selected by date + windowPeriods.
          */
         post: operations["openapi_v2_keyword_trend"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/openapi/v2/keywords/trend-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get keyword trend profile
+         * @description 1. Function
+         *
+         *     Return precomputed trend profiles for one or more keywords over fixed 4, 8, 12, or 26-period windows, preserving keyword and requested-window order. A keyword is billed once when at least one window profile is available. Read trend for search-demand and ABA-rank direction, and trendEvidence for supporting metrics. These are observed conclusions, not forecasts or causal explanations.
+         *
+         *     2. Use cases
+         *
+         *     Summarize observed search-demand and ABA-rank direction over a supported window. Use trend to inspect the weekly data behind a conclusion.
+         */
+        post: operations["openapi_v2_keyword_trend_profile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -682,8 +1170,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 查询关键词搜索结果
-         * @description 返回关键词在输入日期当日或之前最近一个日快照下的搜索结果商品列表及其绝对排名位置，可按曝光位置筛选。数据按天快照存储，保留最近 7 天。
+         * Get keyword search results
+         * @description 1. Function
+         *
+         *     Return factual product listings and absolute ranking positions for a keyword in the weekly period, with optional placement filtering. SERP aggregates and keyword market metrics are intentionally excluded and provided by dedicated metric endpoints.
+         *
+         *     2. Use cases
+         *
+         *     Inspect which products, brands and placements appear for a keyword, and compare their ranking positions. Use market-profile for market-level assessments.
          */
         post: operations["openapi_v2_keyword_search_results"];
         delete?: never;
@@ -702,50 +1196,16 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 查询关键词扩展词
-         * @description 返回与种子关键词相关的扩展词及其搜索热度、排名和相关性指标；当前支持 `phrase` 和 `fuzzy` 扩词。
+         * Get keyword expansions
+         * @description 1. Function
+         *
+         *     Return expanded keywords related to the seed keyword with search volume, rank, and relevance metrics. Supports `phrase` and `fuzzy` expansion.
+         *
+         *     2. Use cases
+         *
+         *     Build candidate keyword lists for further research, listing content or advertising evaluation. Use detail or market-profile to assess the returned candidates.
          */
         post: operations["openapi_v2_keyword_extends"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/openapi/v2/keywords/product-traffic-terms": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 查询商品流量词
-         * @description 返回指定 ASIN 在输入日期当日或之前最近一个日快照下覆盖的关键词，以及对应的曝光、绝对排名位置和流量占比指标。数据按天快照存储，保留最近 7 天。
-         */
-        post: operations["openapi_v2_product_traffic_terms"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/openapi/v2/keywords/competitor-product-keywords": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 查询竞品关键词
-         * @description 返回指定竞品 ASIN 在输入日期当日或之前最近一个日快照下覆盖的关键词，以及对应的曝光、绝对排名位置和流量相关指标。数据按天快照存储，保留最近 7 天。
-         */
-        post: operations["openapi_v2_competitor_product_keywords"];
         delete?: never;
         options?: never;
         head?: never;
@@ -775,12 +1235,17 @@ export interface paths {
          *     ``meta.statusCode`` before trusting the content body: a 4xx/5xx (e.g. 404
          *     or a 5xx) usually means the content is an error page, not the real page.
          *
-         *     A page that *refuses* the request (HTTP 401/403/429/451/503, or one the
+         *     A page that *refuses* the request (HTTP 401/403/451/503, or one the
          *     upstream flags as blocked) returns ``success:false`` with an ``error.code``
-         *     of ``ACCESS_DENIED`` (blocked) / ``RATE_LIMITED`` (429) / ``UNREACHABLE``
-         *     (host didn't resolve) / ``TIMEOUT`` / ``CONTENT_UNAVAILABLE`` (generic), plus
-         *     ``error.details`` (``targetStatusCode`` / ``upstreamCode`` / ``blockSignal``).
-         *     Refused requests are not billed and never carry a content body.
+         *     of ``ACCESS_DENIED`` plus a customer-facing ``error.message`` directing
+         *     the caller to support — these domains stay refused under retry, so the
+         *     response is actionable rather than transient. A 429 returns ``RATE_LIMITED``
+         *     with a generic retry message; ``UNREACHABLE`` / ``TIMEOUT`` /
+         *     ``CONTENT_UNAVAILABLE`` cover host/network/extraction failures. The
+         *     ``error.details`` payload is reserved for future structured attribution and
+         *     is currently always ``null``; callers should branch on ``error.code`` and
+         *     surface ``error.message`` to end users. Refused requests are not billed
+         *     and never carry a content body.
          */
         post: operations["openapi_v2_webtools_scrape"];
         delete?: never;
@@ -827,26 +1292,37 @@ export interface paths {
         put?: never;
         /**
          * Search the web
-         * @description Search the web and return each result page as Markdown.
+         * @description Search the web. Two modes governed by ``scrapeOptions``.
          *
-         *     ``query`` is compatible with common Google search-operator syntax, so
-         *     operators work inline: ``site:``, ``intitle:``, ``filetype:``,
-         *     ``"exact phrase"``, ``-exclude``. To filter by whole domains, prefer the
-         *     structured ``includeDomains`` / ``excludeDomains`` — they are folded into
-         *     the matching ``site:`` / ``-site:`` operators for you (and may be combined,
-         *     e.g. include a parent domain while excluding one subdomain).
+         *     - **Omit ``scrapeOptions``** → SERP-only: returns the search engine's raw
+         *       snippets (``url`` + ``meta`` with ``title`` / ``description`` /
+         *       ``source`` / ``publishedAt`` / ``imageUrl*``). No per-page fetch, fast
+         *       and cheap.
+         *     - **Pass ``scrapeOptions: {}``** → deep-scrape every result, return
+         *       page-faithful Markdown under ``markdown``.
+         *     - **Pass ``scrapeOptions: {"format": "json"}``** → deep-scrape every
+         *       result, return the structured page summary under ``json`` (same shape as
+         *       ``/webtools/scrape``'s ``json`` field).
+         *
+         *     In deep-scrape mode, results where the chosen format produced no content
+         *     are dropped from the response, so the response may hold fewer than
+         *     ``limit`` results. ``meta.statusCode`` carries the fetched page's HTTP
+         *     status when deep-scraped.
+         *
+         *     ``query`` is compatible with common Google search-operator syntax:
+         *     ``site:``, ``intitle:``, ``filetype:``, ``"exact phrase"``, ``-exclude``.
+         *     To filter by whole domains, prefer the structured ``includeDomains`` /
+         *     ``excludeDomains`` — they are folded into the matching ``site:`` /
+         *     ``-site:`` operators (and may be combined, e.g. include a parent domain
+         *     while excluding one subdomain).
          *
          *     Use ``sources`` to pick the result bucket — ``"web"`` (default),
          *     ``"news"``, or ``"images"`` (combinable); ``tbs`` for a time filter
          *     (``qdr:d`` / ``qdr:w`` / ``qdr:m`` / ``qdr:y``); ``limit`` (1-20, default
          *     10) to cap results.
          *
-         *     Each result page is then fetched and returned as ``markdown`` under each
-         *     result; ``meta.statusCode`` is the fetched page's HTTP status. Results that
-         *     can't be fetched within the request budget are dropped from the response, so
-         *     every returned result carries ``markdown`` (the response may hold fewer than
-         *     ``limit`` results). Billing scales with the number of results returned, with
-         *     a minimum of 1 credit per call (an empty result set still bills the minimum).
+         *     Billing scales with the number of results returned, with a minimum of 1
+         *     credit per call (an empty result set still bills the minimum).
          */
         post: operations["openapi_v2_webtools_search"];
         delete?: never;
@@ -1001,6 +1477,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/openapi/v2/tiktok/realtime/video": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tiktok Realtime Video
+         * @description Get realtime TikTok video detail for a single video URL.
+         *
+         *     Returns the video's current state — title, engagement counters (plays,
+         *     likes, comments, shares), creator profile, soundtrack, and any shopping
+         *     anchors (linked TikTok Shop products) — collected on demand, so latency is
+         *     higher than daily-updated endpoints (typically a few seconds). Only
+         *     tiktok.com video URLs are accepted; short links are not supported. Related:
+         *     /tiktok/videos/search for daily-updated data across many videos, and
+         *     /tiktok/realtime/product for full detail on an anchored product.
+         */
+        post: operations["openapi_v2_tiktok_realtime_video"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/openapi/v2/tiktok/creators/search": {
         parameters: {
             query?: never;
@@ -1017,6 +1521,10 @@ export interface paths {
          *     Data is from the latest daily creator snapshot within the fallback window
          *     (region = US in v1). Related-product sales fields describe the overall
          *     product sales for SPUs the creator promoted, not creator-attributed GMV.
+         *     carryVideoSales30d / carryVideoRevenue30d are creator-attributed lower
+         *     bounds (only carry videos with at least 500 plays are counted) and are
+         *     available as sortBy values; results sort by relatedProductSaleAmt30d
+         *     descending unless sortBy is set.
          */
         post: operations["openapi_v2_tiktok_creators_search"];
         delete?: never;
@@ -1392,6 +1900,107 @@ export interface components {
             payment?: string | null;
         };
         /**
+         * AmazonRealtimeBestseller
+         * @description Single bestseller item from Amazon (spec name).
+         */
+        AmazonRealtimeBestseller: {
+            /**
+             * Rank
+             * @description Bestseller rank position
+             */
+            rank: number;
+            /**
+             * Asin
+             * @description Amazon Standard Identification Number
+             */
+            asin: string;
+            /**
+             * Title
+             * @description Product title
+             */
+            title?: string | null;
+            /** @description Product price. */
+            price?: components["schemas"]["RealtimeMoney"] | null;
+            /**
+             * Link
+             * @description Product detail page URL.
+             */
+            link?: string | null;
+            /**
+             * Rating
+             * @description Average star rating (0.0-5.0)
+             */
+            rating?: number | null;
+            /**
+             * Ratingcount
+             * @description Total number of ratings
+             */
+            ratingCount?: number | null;
+            /**
+             * Imageurl
+             * @description Product image URL
+             */
+            imageUrl?: string | null;
+        };
+        /**
+         * AmazonRealtimeBestsellers
+         * @description Bestseller list from Amazon (spec name).
+         */
+        AmazonRealtimeBestsellers: {
+            /**
+             * Categoryid
+             * @description Category identifier
+             */
+            categoryId: string;
+            /**
+             * Categoryname
+             * @description Category name
+             */
+            categoryName?: string | null;
+            /**
+             * Page
+             * @description Page number
+             */
+            page: number;
+            /**
+             * Products
+             * @description List of bestseller products
+             */
+            products: components["schemas"]["AmazonRealtimeBestseller"][];
+        };
+        /**
+         * AmazonRealtimeBestsellersQuery
+         * @description Strict OpenAPI V2 request wrapper for /realtime/bestsellers.
+         *
+         *     See AmazonRealtimeProductQuery for the reasoning.
+         */
+        AmazonRealtimeBestsellersQuery: {
+            /**
+             * Categoryid
+             * @description Amazon category node ID (e.g. 172282); discover via /categories
+             */
+            categoryId?: string | null;
+            /**
+             * Categorypath
+             * @description Category hierarchy from root, e.g. ['Electronics']
+             */
+            categoryPath?: string[] | null;
+            /**
+             * Page
+             * @description Bestseller page: 1 = ranks 1-50, 2 = ranks 51-100
+             * @default 1
+             * @enum {integer}
+             */
+            page: 1 | 2;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+        };
+        /**
          * AmazonRealtimeProduct
          * @description Realtime product detail from Amazon (spec name; mirrors TikTokRealtimeProduct).
          *
@@ -1555,11 +2164,11 @@ export interface components {
             asin: string;
             /**
              * Marketplace
-             * @description Amazon marketplace: 'US' (amazon.com, default) or 'UK' (amazon.co.uk).
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
         };
         /**
          * AmazonRealtimeReview
@@ -1648,6 +2257,91 @@ export interface components {
             isGlobalReview?: boolean | null;
         };
         /**
+         * AmazonRealtimeReviewItem
+         * @description Paginated review item returned by /realtime/reviews.
+         *
+         *     Same shape as AmazonRealtimeReview minus reviewer identity: `author` is
+         *     excluded from both the JSON payload and the public spec. The product-page
+         *     `topReviews` field keeps the unredacted AmazonRealtimeReview shape.
+         */
+        AmazonRealtimeReviewItem: {
+            /**
+             * Reviewid
+             * @description Unique review identifier.
+             */
+            reviewId?: string | null;
+            /**
+             * Title
+             * @description Review title.
+             */
+            title?: string | null;
+            /**
+             * Body
+             * @description Review text as plain text, cleaned of page artifacts.
+             */
+            body?: string | null;
+            /**
+             * Bodyhtml
+             * @description Review text as raw HTML, preserving formatting. Returned by /realtime/reviews; omitted in product topReviews.
+             */
+            bodyHtml?: string | null;
+            /**
+             * Rating
+             * @description Star rating given by the reviewer, 1-5.
+             */
+            rating?: number | null;
+            /**
+             * Date
+             * @description Review time in ISO 8601 UTC, e.g. '2026-03-01T00:00:00Z'.
+             */
+            date?: string | null;
+            /**
+             * Verifiedpurchase
+             * @description True if Amazon verified the reviewer bought the product.
+             */
+            verifiedPurchase?: boolean | null;
+            /**
+             * Vineprogram
+             * @description True if this is an Amazon Vine review (free product for review).
+             */
+            vineProgram?: boolean | null;
+            /**
+             * Helpfulvotecount
+             * @description Number of 'helpful' votes.
+             */
+            helpfulVoteCount?: number | null;
+            /**
+             * Images
+             * @description Image URLs attached to the review.
+             */
+            images?: string[] | null;
+            /**
+             * Videos
+             * @description Videos attached to the review (URL, poster image, duration).
+             */
+            videos?: components["schemas"]["RealtimeVideo"][] | null;
+            /**
+             * Selectedoptions
+             * @description Option values of the variation the reviewer bought, e.g. Color: Black.
+             */
+            selectedOptions?: components["schemas"]["PropertyValue"][] | null;
+            /**
+             * Link
+             * @description Permalink to this review on Amazon.
+             */
+            link?: string | null;
+            /**
+             * Reviewcountry
+             * @description Country where the review was written, e.g. 'United States'.
+             */
+            reviewCountry?: string | null;
+            /**
+             * Isglobalreview
+             * @description True if written on another marketplace and shown translated.
+             */
+            isGlobalReview?: boolean | null;
+        };
+        /**
          * AmazonRealtimeReviews
          * @description Realtime reviews response from Amazon (spec name without the DTO suffix).
          */
@@ -1661,7 +2355,7 @@ export interface components {
              * Reviews
              * @description Reviews on this page.
              */
-            reviews: components["schemas"]["AmazonRealtimeReview"][];
+            reviews: components["schemas"]["AmazonRealtimeReviewItem"][];
             /**
              * Nextcursor
              * @description Pass this token as `cursor` to fetch the next page. null means there are no more pages.
@@ -1682,11 +2376,11 @@ export interface components {
             asin: string;
             /**
              * Marketplace
-             * @description Amazon marketplace: 'US' (amazon.com, default) or 'UK' (amazon.co.uk).
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
             /**
              * Cursor
              * @description Pagination token. Omit for the first page; for the next page, pass the `nextCursor` value from the previous response. A null `nextCursor` in the response means no more pages.
@@ -1752,147 +2446,210 @@ export interface components {
         /** AsinKeywordItem */
         AsinKeywordItem: {
             /**
-             * Observedat
-             * @description 数据观测时间
+             * Latestobservedat
+             * @description Latest observation timestamp.
              */
-            observedAt?: string;
+            latestObservedAt?: string;
             /**
              * Exploretype
-             * @description 曝光位置类型
+             * @description Explore placement type.
              */
             exploreType?: string;
             /**
              * Absoluteposition
-             * @description 绝对排名位置
+             * @description Absolute ranking position.
              */
             absolutePosition?: number;
             /**
              * Pageindex
-             * @description 页索引，从 1 开始
+             * @description One-based page index.
              */
             pageIndex?: number;
             /**
              * Pageposition
-             * @description 页内位置
+             * @description Position within the page.
              */
             pagePosition?: number;
             /**
-             * Asin
-             * @description 商品 ASIN
-             */
-            asin: string;
-            /**
              * Keyword
-             * @description 关键词
+             * @description Keyword.
              */
-            keyword: string;
+            keyword?: string;
+            /**
+             * Keywordestimatesearchcount
+             * @description Estimated keyword search count.
+             */
+            keywordEstimateSearchCount?: number;
+            /**
+             * Keywordabarank
+             * @description Keyword ABA rank.
+             */
+            keywordAbaRank?: number;
             /**
              * Estimateimpressionpoint
-             * @description 预估曝光分值
+             * @description Estimated impression point.
              */
             estimateImpressionPoint?: number;
             /**
              * Asintotalestimateimpressionpoint
-             * @description 该 ASIN 总预估曝光分值
+             * @description Total estimated impression point for the ASIN.
              */
             asinTotalEstimateImpressionPoint?: number;
             /**
              * Avgposition
-             * @description 平均位置
+             * @description Average position.
              */
             avgPosition?: number;
             /**
              * Dayscoveragerate
-             * @description 观察天数覆盖率
+             * @description Observation-day coverage rate.
              */
             daysCoverageRate?: number;
             /**
              * Observationcount
-             * @description 观测次数
+             * @description Observation count.
              */
             observationCount?: number;
             /**
-             * Keywordestimatesearchcount
-             * @description 关键词预估搜索量
-             */
-            keywordEstimateSearchCount?: number;
-            /**
-             * Keywordestimatesearchgrowthcount
-             * @description 关键词预估搜索量增长值
-             */
-            keywordEstimateSearchGrowthCount?: number;
-            /**
-             * Keywordestimatesearchcountchangerate
-             * @description 关键词预估搜索量变化率
-             */
-            keywordEstimateSearchCountChangeRate?: number;
-            /**
-             * Keywordabarank
-             * @description 关键词 ABA 排名
-             */
-            keywordAbaRank?: number;
-            /**
-             * Keywordabarankchangecount
-             * @description 关键词 ABA 排名变化值
-             */
-            keywordAbaRankChangeCount?: number;
-            /**
              * Trafficshare
-             * @description 流量占比
+             * @description Traffic share.
              */
             trafficShare?: number;
+        };
+        /** AsinKeywordsContext */
+        AsinKeywordsContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Requesteddate
+             * @description Requested date.
+             */
+            requestedDate: string;
+            /**
+             * Resolveddate
+             * @description Resolved date.
+             */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @description Period granularity.
+             */
+            granularity: string;
+            /** @description Data period window. */
+            dataWindow?: components["schemas"]["KeywordDataWindowItem"];
+        };
+        /** AsinKeywordsData */
+        AsinKeywordsData: {
+            /** @description ASIN traffic-term query context. */
+            context: components["schemas"]["AsinKeywordsContext"];
+            /** @description Query identity. */
+            identity: components["schemas"]["AsinKeywordsIdentityItem"];
+            /**
+             * Rows
+             * @description ASIN keyword rows.
+             */
+            rows?: components["schemas"]["AsinKeywordItem"][];
+        };
+        /** AsinKeywordsIdentityItem */
+        AsinKeywordsIdentityItem: {
+            /**
+             * Asin
+             * @description Product ASIN.
+             */
+            asin: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
         };
         /** AsinKeywordsRequest */
         AsinKeywordsRequest: {
             /**
              * Marketplace
-             * @description 亚马逊站点代码
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
             /**
              * Page
-             * @description 页码，从 1 开始
+             * @description Page number, starting at 1.
              * @default 1
              */
             page: number;
             /**
              * Pagesize
-             * @description 每页条数，最大 100
+             * @description Items per page; 1 to 100.
              * @default 20
              */
             pageSize: number;
             /**
              * Exploretypes
-             * @description 可选的曝光位置筛选；为空时表示返回全部位置类型
+             * @description Optional placement filter. Empty means all result types. Allowed values: ORG/SP/SB/SBV/SPR.
              */
             exploreTypes?: ("ORG" | "SP" | "SB" | "SBV" | "SPR")[];
             /**
              * Date
-             * @description 查询日期，格式 YYYY-MM-DD。数据按天快照存储，保留最近 7 天，返回该日期当日或之前最近一个快照数据。
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest snapshot on or before this date; actual date is `resolvedDate`.
              */
             date: string;
             /**
              * Asin
-             * @description 亚马逊 ASIN，10 位字母数字编码
+             * @description Amazon Standard Identification Number (10-character alphanumeric).
              */
             asin: string;
             /**
              * Keywordcontains
-             * @description 返回关键词的可选包含词筛选
+             * @description Non-empty substring filter for returned keywords; omit to disable this filter.
              */
             keywordContains?: string;
             /**
+             * Keywordestimatesearchcountmin
+             * @description Minimum estimated keyword search count; must not exceed keywordEstimateSearchCountMax.
+             */
+            keywordEstimateSearchCountMin?: number;
+            /**
+             * Keywordestimatesearchcountmax
+             * @description Maximum estimated keyword search count; must not be below keywordEstimateSearchCountMin.
+             */
+            keywordEstimateSearchCountMax?: number;
+            /**
+             * Keywordabarankmin
+             * @description Minimum numeric keyword ABA rank; must not exceed keywordAbaRankMax.
+             */
+            keywordAbaRankMin?: number;
+            /**
+             * Keywordabarankmax
+             * @description Maximum numeric keyword ABA rank; must not be below keywordAbaRankMin.
+             */
+            keywordAbaRankMax?: number;
+            /**
              * Sortby
-             * @description 排序字段
-             * @default estimateImpressionPoint
+             * @description Sort field: trafficShare=ASIN keyword-traffic share; estimateImpressionPoint=estimated impressions; absolutePosition=SERP position; avgPosition=average position; latestObservedAt=latest observation; keywordEstimateSearchCount=estimated searches; keywordAbaRank=numeric ABA rank; keyword=lexical order.
+             * @default trafficShare
              * @enum {string}
              */
-            sortBy: "estimateImpressionPoint" | "absolutePosition" | "avgPosition" | "keywordEstimateSearchCount" | "keywordAbaRank" | "observedAt" | "keyword";
+            sortBy: "trafficShare" | "estimateImpressionPoint" | "absolutePosition" | "avgPosition" | "latestObservedAt" | "keywordEstimateSearchCount" | "keywordAbaRank" | "keyword";
             /**
              * Sortorder
-             * @description 排序方向
+             * @description Sort direction.
              * @default desc
              * @enum {string}
              */
@@ -1975,17 +2732,56 @@ export interface components {
             createdAt: string;
         };
         /**
+         * BsrCategory
+         * @description The category a Best Sellers Rank is computed in.
+         */
+        BsrCategory: {
+            /**
+             * Name
+             * @description Category name shown in the page's Best Sellers Rank block.
+             */
+            name: string | null;
+            /**
+             * Nodeid
+             * @description Numeric node ID parsed from the bestsellers link; null for root categories, whose links carry only an alias.
+             */
+            nodeId: string | null;
+            /**
+             * Link
+             * @description Bestsellers link path as shown on the page.
+             */
+            link: string | null;
+            /**
+             * Isroot
+             * @description True for the main-category rank, false for the sub-category rank.
+             */
+            isRoot: boolean;
+        };
+        /**
+         * BsrCategoryChange
+         * @description A change point for a rank category node.
+         */
+        BsrCategoryChange: {
+            /**
+             * Date
+             * @description Date when the value changed (YYYY-MM-DD)
+             */
+            date: string;
+            /** @description The rank category node; null when the page showed no rank. */
+            value: components["schemas"]["BsrCategory"] | null;
+        };
+        /**
          * CategoriesSearch
          * @description OpenAPI strict wrapper — rejects unknown fields.
          */
         CategoriesSearch: {
             /**
              * Marketplace
-             * @description Amazon marketplace code
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
             /**
              * Categoryid
              * @description Category identifier
@@ -2078,6 +2874,38 @@ export interface components {
              * @description Product count in this category
              */
             productCount: number;
+        };
+        /**
+         * CategoryLeaderboardRequest
+         * @description Request for a product-level Top-N leaderboard within one category.
+         */
+        CategoryLeaderboardRequest: {
+            /**
+             * Categorypath
+             * @description Category hierarchy from root to the target category.
+             */
+            categoryPath: string[];
+            /**
+             * Ranktype
+             * @description Leaderboard type: sales, surging sales, or Amazon New Release products.
+             * @enum {string}
+             */
+            rankType: "sales" | "surging" | "newRelease";
+            /** @description Null or '30d' for the latest snapshot, or an available YYYY-MM month. */
+            dateRange?: string;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Pagesize
+             * @description Number of ranked products to return.
+             * @default 20
+             */
+            pageSize: number;
         };
         /**
          * ChangelogEntry
@@ -2386,7 +3214,7 @@ export interface components {
         CrawlerScrapeMeta: {
             /**
              * Statuscode
-             * @description HTTP status returned by the target page, present on a ``success:true`` response. A non-2xx value (e.g. 404 or 5xx) means the body is an error page — check this before trusting the content. **Refused** statuses (401/403/429/451/503) are NOT reported here; they return ``success:false`` with an ``error.code`` of ``ACCESS_DENIED`` or ``RATE_LIMITED`` and ``error.details.targetStatusCode`` instead.
+             * @description HTTP status returned by the target page, present on a ``success:true`` response. A non-2xx value (e.g. 404 or 5xx) means the body is an error page — check this before trusting the content. **Refused** statuses (401/403/429/451/503) are NOT reported here; they return ``success:false`` with an ``error.code`` of ``ACCESS_DENIED`` or ``RATE_LIMITED`` instead. Branch on ``error.code`` and surface ``error.message`` to end users; ``error.details`` is reserved for future structured attribution and is currently ``null``.
              */
             statusCode?: number | null;
             /**
@@ -2488,6 +3316,8 @@ export interface components {
              * @description Exclude results from these domains (bare hostnames only, e.g. ``pinterest.com``). Folded into ``-site:`` operators. May be combined with ``includeDomains``. Max 20.
              */
             excludeDomains?: string[] | null;
+            /** @description Deep-scrape options. Omit (or pass ``null``) to return **SERP results only** (fast, no per-page fetch — useful when you only need the result list). Pass ``{}`` to deep-scrape every result with default ``format=markdown``. Pass ``{"format": "json"}`` to deep-scrape with structured extraction. */
+            scrapeOptions?: components["schemas"]["SearchScrapeOptions"] | null;
         };
         /**
          * CrawlerSearchResult
@@ -2501,9 +3331,16 @@ export interface components {
             url: string;
             /**
              * Markdown
-             * @description Result page content as Markdown (every returned result is deep-scraped).
+             * @description Page-faithful Markdown of the result page. Present only when ``scrapeOptions.format="markdown"`` was requested (the default when ``scrapeOptions`` is present).
              */
             markdown?: string | null;
+            /**
+             * Json
+             * @description Structured page summary, same shape as ``/webtools/scrape``'s ``json`` field — dispatch on ``page_type``. Present only when ``scrapeOptions.format="json"`` was requested.
+             */
+            json?: {
+                [key: string]: unknown;
+            } | null;
             /** @description Per-result metadata. */
             meta?: components["schemas"]["CrawlerSearchResultMeta"] | null;
         };
@@ -2612,6 +3449,29 @@ export interface components {
              * @description Credit balance, external units (ADR-0003: 1 decimal place).
              */
             balance: number;
+        };
+        /**
+         * CreditAccountBalanceWithUsd
+         * @description Credits view + `usd` block for a credits customer who owns a USD
+         *     wallet via self-serve top-up (topup spec §4.6 dual view).
+         *
+         *     A separate subclass — not an optional field on `CreditAccountBalance` —
+         *     so the no-wallet response stays field-for-field identical to the
+         *     pre-topup shape (no `"usd": null`), which the contract tests lock.
+         */
+        CreditAccountBalanceWithUsd: {
+            /**
+             * Billingmode
+             * @default credits
+             * @constant
+             */
+            billingMode: "credits";
+            /**
+             * Balance
+             * @description Credit balance, external units (ADR-0003: 1 decimal place).
+             */
+            balance: number;
+            usd: components["schemas"]["UsdBalanceSplit"];
         };
         /**
          * DetectedObject
@@ -3243,837 +4103,3130 @@ export interface components {
             avgRating?: number | null;
             /**
              * Reviewrate
-             * @description Share of reviews mentioning this item as decimal (0.25 = 25%).
+             * @description Share of all analyzed reviews mentioning this item as decimal (0.25 = 25%). The denominator is reviewCount, not the dimension's item total, so one dimension's rates can sum above 1.
              */
             reviewRate: number;
         };
-        /** KeywordDetailItem */
-        KeywordDetailItem: {
+        /** KeywordAbaRankMetric */
+        KeywordAbaRankMetric: {
             /**
-             * Prevabarank
-             * @description 上一周期 ABA 排名
+             * Value
+             * @description ABA rank.
              */
-            prevAbaRank?: number;
+            value?: number;
             /**
-             * Prevestimatesearchcount
-             * @description 上一周期预估搜索量
+             * Direction
+             * @description A lower value means a better rank.
              */
-            prevEstimateSearchCount?: number;
+            direction?: "lower_means_better_rank";
+        };
+        /** KeywordAbaRankNormalizedSlopeMetric */
+        KeywordAbaRankNormalizedSlopeMetric: {
             /**
-             * Estimatesearchchangecount
-             * @description 预估搜索量变化值
+             * Value
+             * @description Normalized ABA-rank slope per period.
              */
-            estimateSearchChangeCount?: number;
+            value?: number;
             /**
-             * Estimatesearchchangerate
-             * @description 预估搜索量变化率
+             * Direction
+             * @description A positive value means the rank is worsening.
              */
-            estimateSearchChangeRate?: number;
+            direction?: "positive_means_rank_worsening";
+        };
+        /** KeywordAbaRankTrend */
+        KeywordAbaRankTrend: {
             /**
-             * Periodstartdate
-             * @description 统计周期开始日期
+             * Supported
+             * @description Whether the ABA-rank trend can be calculated.
              */
-            periodStartDate?: string;
+            supported?: boolean;
             /**
-             * Periodenddate
-             * @description 统计周期结束日期
+             * Calculationstatus
+             * @description Calculation status of the ABA-rank trend.
              */
-            periodEndDate?: string;
+            calculationStatus?: "complete" | "partial" | "unavailable";
             /**
-             * Observedat
-             * @description 数据观测时间
+             * Unsupportedreason
+             * @description Reason the ABA-rank trend cannot be calculated.
              */
-            observedAt?: string;
+            unsupportedReason?: string;
             /**
-             * Periodtype
-             * @description 指标周期类型
+             * Trend
+             * @description Overall ABA-rank trend.
              */
-            periodType?: string;
+            trend?: "improving" | "worsening" | "stable";
+            /** @description Statistical evidence for the ABA-rank trend. */
+            trendEvidence?: components["schemas"]["KeywordAbaRankTrendEvidence"];
+        };
+        /** KeywordAbaRankTrendEvidence */
+        KeywordAbaRankTrendEvidence: {
+            /** @description First-window-period ABA-rank metric. */
+            firstPeriodAbaRank?: components["schemas"]["KeywordAbaRankMetric"];
+            /** @description Last-window-period ABA-rank metric. */
+            lastPeriodAbaRank?: components["schemas"]["KeywordAbaRankMetric"];
+            /** @description First-to-last rank-improvement-count metric. */
+            firstToLastRankImprovementCount?: components["schemas"]["KeywordRankImprovementCountMetric"];
+            /** @description Previous-to-last rank-improvement-count metric. */
+            previousToLastRankImprovementCount?: components["schemas"]["KeywordRankImprovementCountMetric"];
+            /** @description Normalized ABA-rank-slope metric. */
+            normalizedSlopePerPeriod?: components["schemas"]["KeywordAbaRankNormalizedSlopeMetric"];
+            /** @description Trend direction-consistency-rate metric. */
+            directionConsistencyRate?: components["schemas"]["KeywordTrendDirectionConsistencyRateMetric"];
+            /** @description Aligned-period-count metric. */
+            alignedPeriodCount?: components["schemas"]["KeywordTrendAlignedPeriodCountMetric"];
+            /** @description Eligible-period-pair-count metric. */
+            eligiblePeriodPairCount?: components["schemas"]["KeywordTrendEligiblePeriodPairCountMetric"];
+            /** @description Best ABA-rank metric in the window. */
+            bestAbaRank?: components["schemas"]["KeywordAbaRankMetric"];
+            /** @description Worst ABA-rank metric in the window. */
+            worstAbaRank?: components["schemas"]["KeywordAbaRankMetric"];
+        };
+        /** KeywordAdActivityLevelEvidence */
+        KeywordAdActivityLevelEvidence: {
+            /** @description Advertising-activity score metric. */
+            score?: components["schemas"]["KeywordAdActivityScoreMetric"];
+        };
+        /** KeywordAdActivityProfile */
+        KeywordAdActivityProfile: {
             /**
-             * Estimatesearchcountweekly
-             * @description 周预估搜索量
+             * Supported
+             * @description Whether this profile dimension is supported.
              */
-            estimateSearchCountWeekly?: number;
+            supported?: boolean;
             /**
-             * Abarank
-             * @description ABA 排名
+             * Level
+             * @description Advertising-activity level.
              */
-            abaRank?: number;
+            level?: "low" | "medium" | "high" | "unknown";
             /**
-             * Abatop3Clicksharerate
-             * @description ABA Top 3 点击份额，表示该关键词下点击量最高的前三个商品合计点击占比。
+             * Interpretation
+             * @description Advertising-activity interpretation.
              */
-            abaTop3ClickShareRate?: number;
+            interpretation?: "low_activity" | "moderate_activity" | "high_activity" | "unknown";
             /**
-             * Abatop3Conversionsharerate
-             * @description ABA Top 3 转化份额，表示该关键词下转化量最高的前三个商品合计转化占比。
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
              */
-            abaTop3ConversionShareRate?: number;
+            calculationStatus?: "complete" | "partial" | "unavailable";
             /**
-             * Marketcharacteristics
-             * @description 市场特征标签
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
              */
-            marketCharacteristics?: string;
+            unsupportedReason?: string;
+            /** @description Evidence for the advertising-activity level. */
+            levelEvidence?: components["schemas"]["KeywordAdActivityLevelEvidence"];
+        };
+        /** KeywordAdActivityScoreMetric */
+        KeywordAdActivityScoreMetric: {
             /**
-             * Totalskucnt
-             * @description 结果总 SKU 数
+             * Value
+             * @description Advertising-activity score.
              */
-            totalSkuCnt?: number;
+            value?: number;
             /**
-             * Observedskucount
-             * @description 被观测到的 SKU 数量
+             * Direction
+             * @description A higher value means greater advertising activity.
              */
-            observedSkuCount?: number;
+            direction?: "higher_means_more_active";
+        };
+        /** KeywordAnnualSeasonalityClassificationEvidence */
+        KeywordAnnualSeasonalityClassificationEvidence: {
+            /** @description Year-over-year pattern-correlation metric. */
+            yearOverYearPatternCorrelation?: components["schemas"]["KeywordYearOverYearPatternCorrelationMetric"];
+            /** @description Eligible year-over-year-pair-count metric. */
+            eligibleYearOverYearPairCount?: components["schemas"]["KeywordEligibleYearOverYearPairCountMetric"];
             /**
-             * Brandcount
-             * @description 品牌数量
+             * Seasonalpeakpatterndetected
+             * @description Whether a seasonal peak pattern was detected.
              */
-            brandCount?: number;
+            seasonalPeakPatternDetected?: boolean;
             /**
-             * Titledensity
-             * @description 标题密度
+             * Peakperiods
+             * @description Detected historical peak periods.
              */
-            titleDensity?: number;
+            peakPeriods?: components["schemas"]["KeywordMarketProfilePeakPeriod"][];
+        };
+        /** KeywordAverageSearchVolumeMetric */
+        KeywordAverageSearchVolumeMetric: {
             /**
-             * Organicrolloverrate
-             * @description 自然位轮换率
+             * Value
+             * @description Average baseline search volume.
              */
-            organicRolloverRate?: number;
+            value?: number;
             /**
-             * Amazonchoiceskucount
-             * @description Amazon Choice SKU 数量
+             * Direction
+             * @description A higher value means stronger baseline demand.
              */
-            amazonChoiceSkuCount?: number;
+            direction?: "higher_means_stronger_baseline_demand";
+        };
+        /** KeywordBrandStructureProfile */
+        KeywordBrandStructureProfile: {
             /**
-             * Organicskucount
-             * @description 自然位 SKU 数量
+             * Supported
+             * @description Whether this profile dimension is supported.
              */
-            organicSkuCount?: number;
+            supported?: boolean;
             /**
-             * Sponsoredproductskucount
-             * @description Sponsored Product SKU 数量
+             * Level
+             * @description Brand-structure concentration level.
              */
-            sponsoredProductSkuCount?: number;
+            level?: "low" | "medium" | "high" | "unknown";
             /**
-             * Sponsoredbrandskucount
-             * @description Sponsored Brand SKU 数量
+             * Interpretation
+             * @description Brand-structure interpretation.
              */
-            sponsoredBrandSkuCount?: number;
+            interpretation?: "fragmented" | "balanced" | "concentrated" | "unknown";
             /**
-             * Sponsoredbrandvideoskucount
-             * @description Sponsored Brand Video SKU 数量
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
              */
-            sponsoredBrandVideoSkuCount?: number;
+            calculationStatus?: "complete" | "partial" | "unavailable";
             /**
-             * Sponsoredrecommendskucount
-             * @description Sponsored Recommend SKU 数量
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
              */
-            sponsoredRecommendSkuCount?: number;
+            unsupportedReason?: string;
+            /** @description Evidence for the brand-structure level. */
+            levelEvidence?: components["schemas"]["KeywordConcentrationLevelEvidence"];
+        };
+        /** KeywordConcentrationLevelEvidence */
+        KeywordConcentrationLevelEvidence: {
+            /** @description Concentration score metric. */
+            score?: components["schemas"]["KeywordConcentrationScoreMetric"];
+        };
+        /** KeywordConcentrationScoreMetric */
+        KeywordConcentrationScoreMetric: {
             /**
-             * Adcampaigncount
-             * @description 广告活动数量
+             * Value
+             * @description Concentration score.
              */
-            adCampaignCount?: number;
+            value?: number;
             /**
-             * Adcount
-             * @description 广告数量
+             * Direction
+             * @description A higher value means greater concentration.
              */
-            adCount?: number;
+            direction?: "higher_means_more_concentrated";
+        };
+        /** KeywordDataWindowItem */
+        KeywordDataWindowItem: {
+            /** @description Current period. */
+            currentPeriod?: components["schemas"]["KeywordPeriodItem"];
+        };
+        /** KeywordDemandScaleLevelEvidence */
+        KeywordDemandScaleLevelEvidence: {
+            /** @description Demand-scale score metric. */
+            score?: components["schemas"]["KeywordDemandScaleScoreMetric"];
+        };
+        /** KeywordDemandScaleProfile */
+        KeywordDemandScaleProfile: {
             /**
-             * Top48Organicskuavgprice
-             * @description 自然搜索结果前 48 个 SKU 的平均价格。
+             * Supported
+             * @description Whether this profile dimension is supported.
              */
-            top48OrganicSkuAvgPrice?: number;
+            supported?: boolean;
             /**
-             * Top48Organicskuavgrating
-             * @description 自然搜索结果前 48 个 SKU 的平均评分。
+             * Level
+             * @description Demand-scale level.
              */
-            top48OrganicSkuAvgRating?: number;
+            level?: "low" | "medium" | "high" | "unknown";
             /**
-             * Top48Organicskuavgratingstotal
-             * @description 自然搜索结果前 48 个 SKU 的平均评论数。
+             * Interpretation
+             * @description Demand-strength interpretation.
              */
-            top48OrganicSkuAvgRatingsTotal?: number;
+            interpretation?: "weak_demand" | "moderate_demand" | "strong_demand" | "unknown";
             /**
-             * Top48Organicskuavgrecentsalecnt
-             * @description 自然搜索结果前 48 个 SKU 的平均近期销量。
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
              */
-            top48OrganicSkuAvgRecentSaleCnt?: number;
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
+             */
+            unsupportedReason?: string;
+            /** @description Evidence for the demand-scale level. */
+            levelEvidence?: components["schemas"]["KeywordDemandScaleLevelEvidence"];
+        };
+        /** KeywordDemandScaleScoreMetric */
+        KeywordDemandScaleScoreMetric: {
+            /**
+             * Value
+             * @description Demand-scale score.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means stronger demand.
+             */
+            direction?: "higher_means_stronger_demand";
+        };
+        /** KeywordDetailBatchItem */
+        KeywordDetailBatchItem: {
+            /** @description Query identity. */
+            identity?: components["schemas"]["KeywordDetailIdentityItem"];
+            /**
+             * Status
+             * @description Business result status.
+             * @enum {string}
+             */
+            status: "ok" | "empty" | "error";
+            /** @description Current snapshot keyword profile data. */
+            snapshotData?: components["schemas"]["KeywordDetailSnapshotDataItem"];
+            /**
+             * Emptyreason
+             * @description Empty reason.
+             */
+            emptyReason?: string;
+            /**
+             * Errorcode
+             * @description Error code.
+             */
+            errorCode?: string;
+            /**
+             * Errormessage
+             * @description Error message.
+             */
+            errorMessage?: string;
+        };
+        /** KeywordDetailData */
+        KeywordDetailData: {
+            /** @description Keyword snapshot query context. */
+            context: components["schemas"]["KeywordSnapshotContext"];
+            /**
+             * Items
+             * @description Batch items.
+             */
+            items?: components["schemas"]["KeywordDetailBatchItem"][];
+        };
+        /** KeywordDetailIdentityItem */
+        KeywordDetailIdentityItem: {
             /**
              * Keyword
-             * @description 关键词
+             * @description Keyword.
              */
-            keyword?: string;
+            keyword: string;
             /**
              * Site
-             * @description 站点代码
+             * @description Marketplace site code.
              */
-            site?: string;
-            /**
-             * Abarankchangecount
-             * @description ABA 排名变化值
-             */
-            abaRankChangeCount?: number;
+            site: string;
         };
         /** KeywordDetailRequest */
         KeywordDetailRequest: {
             /**
              * Marketplace
-             * @description 亚马逊站点代码
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
             /**
              * Date
-             * @description 查询日期，格式 YYYY-MM-DD。数据按周快照存储，返回该日期当日或之前最近一期快照数据。
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest snapshot on or before this date; actual date is `resolvedDate`.
              */
             date: string;
             /**
              * Keyword
-             * @description 要查询的关键词
+             * @description Single keyword; mutually exclusive with `keywords`. Surrounding whitespace is trimmed; letter case is accepted.
              */
-            keyword: string;
+            keyword?: string;
+            /**
+             * Keywords
+             * @description Keyword list, up to 20; mutually exclusive with `keyword`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected. Duplicate keywords are rejected.
+             */
+            keywords?: string[];
         };
-        /** KeywordExtendItem */
-        KeywordExtendItem: {
+        /** KeywordDetailSnapshotDataItem */
+        KeywordDetailSnapshotDataItem: {
             /**
-             * Periodstartdate
-             * @description 统计周期开始日期
+             * Estimatesearchcount
+             * @description Estimated search count.
              */
-            periodStartDate?: string;
-            /**
-             * Periodenddate
-             * @description 统计周期结束日期
-             */
-            periodEndDate?: string;
-            /**
-             * Observedat
-             * @description 数据观测时间
-             */
-            observedAt?: string;
-            /**
-             * Periodtype
-             * @description 指标周期类型
-             */
-            periodType?: string;
-            /**
-             * Estimatesearchcountweekly
-             * @description 周预估搜索量
-             */
-            estimateSearchCountWeekly?: number;
+            estimateSearchCount?: number;
             /**
              * Abarank
-             * @description ABA 排名
+             * @description ABA rank.
              */
             abaRank?: number;
             /**
              * Abatop3Clicksharerate
-             * @description ABA Top 3 点击份额，表示该关键词下点击量最高的前三个商品合计点击占比。
+             * @description ABA Top 3 click share rate.
              */
             abaTop3ClickShareRate?: number;
             /**
              * Abatop3Conversionsharerate
-             * @description ABA Top 3 转化份额，表示该关键词下转化量最高的前三个商品合计转化占比。
+             * @description ABA Top 3 conversion share rate.
              */
             abaTop3ConversionShareRate?: number;
             /**
              * Marketcharacteristics
-             * @description 市场特征标签
+             * @description Market characteristics label.
              */
             marketCharacteristics?: string;
             /**
-             * Totalskucnt
-             * @description 结果总 SKU 数
+             * Totalskucount
+             * @description Total SKU count.
              */
-            totalSkuCnt?: number;
+            totalSkuCount?: number;
             /**
              * Observedskucount
-             * @description 被观测到的 SKU 数量
+             * @description Observed SKU count.
              */
             observedSkuCount?: number;
             /**
              * Brandcount
-             * @description 品牌数量
+             * @description Brand count.
              */
             brandCount?: number;
             /**
              * Titledensity
-             * @description 标题密度
+             * @description Title density.
              */
             titleDensity?: number;
             /**
              * Organicrolloverrate
-             * @description 自然位轮换率
+             * @description Organic rollover rate.
              */
             organicRolloverRate?: number;
             /**
              * Amazonchoiceskucount
-             * @description Amazon Choice SKU 数量
+             * @description Amazon Choice SKU count.
              */
             amazonChoiceSkuCount?: number;
             /**
              * Organicskucount
-             * @description 自然位 SKU 数量
+             * @description Organic SKU count.
              */
             organicSkuCount?: number;
             /**
              * Sponsoredproductskucount
-             * @description Sponsored Product SKU 数量
+             * @description Sponsored Product SKU count.
              */
             sponsoredProductSkuCount?: number;
             /**
              * Sponsoredbrandskucount
-             * @description Sponsored Brand SKU 数量
+             * @description Sponsored Brand SKU count.
              */
             sponsoredBrandSkuCount?: number;
             /**
              * Sponsoredbrandvideoskucount
-             * @description Sponsored Brand Video SKU 数量
+             * @description Sponsored Brand Video SKU count.
              */
             sponsoredBrandVideoSkuCount?: number;
             /**
              * Sponsoredrecommendskucount
-             * @description Sponsored Recommend SKU 数量
+             * @description Sponsored recommend SKU count.
              */
             sponsoredRecommendSkuCount?: number;
             /**
              * Adcampaigncount
-             * @description 广告活动数量
+             * @description Ad campaign count.
              */
             adCampaignCount?: number;
             /**
              * Adcount
-             * @description 广告数量
+             * @description Ad count.
              */
             adCount?: number;
             /**
              * Top48Organicskuavgprice
-             * @description 自然搜索结果前 48 个 SKU 的平均价格。
+             * @description Average price of top 48 organic SKUs.
              */
             top48OrganicSkuAvgPrice?: number;
             /**
              * Top48Organicskuavgrating
-             * @description 自然搜索结果前 48 个 SKU 的平均评分。
+             * @description Average rating of top 48 organic SKUs.
              */
             top48OrganicSkuAvgRating?: number;
             /**
              * Top48Organicskuavgratingstotal
-             * @description 自然搜索结果前 48 个 SKU 的平均评论数。
+             * @description Average review count of top 48 organic SKUs.
              */
             top48OrganicSkuAvgRatingsTotal?: number;
             /**
-             * Top48Organicskuavgrecentsalecnt
-             * @description 自然搜索结果前 48 个 SKU 的平均近期销量。
+             * Top48Organicskuavgrecentsalecount
+             * @description Average recent sales of top 48 organic SKUs.
              */
-            top48OrganicSkuAvgRecentSaleCnt?: number;
+            top48OrganicSkuAvgRecentSaleCount?: number;
+        };
+        /** KeywordEligibleYearOverYearPairCountMetric */
+        KeywordEligibleYearOverYearPairCountMetric: {
             /**
-             * Term
-             * @description 扩展词
+             * Value
+             * @description Number of eligible year-over-year pairs.
              */
-            term: string;
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means more eligible year-over-year pairs.
+             */
+            direction?: "higher_means_more_eligible_year_over_year_pairs";
+        };
+        /** KeywordEstimateSearchCountChangeRateMetric */
+        KeywordEstimateSearchCountChangeRateMetric: {
+            /**
+             * Value
+             * @description Estimated-search-count change rate.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A positive value means demand growth.
+             */
+            direction?: "positive_means_demand_growth";
+        };
+        /** KeywordEstimateSearchCountMetric */
+        KeywordEstimateSearchCountMetric: {
+            /**
+             * Value
+             * @description Estimated search count.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means stronger demand.
+             */
+            direction?: "higher_means_stronger_demand";
+        };
+        /** KeywordExtendItem */
+        KeywordExtendItem: {
+            /** @description Expansion match data. */
+            matchData: components["schemas"]["KeywordExtendMatchData"];
+            /** @description Keyword snapshot data. */
+            keywordSnapshot: components["schemas"]["KeywordExtendKeywordSnapshot"];
+        };
+        /** KeywordExtendKeywordSnapshot */
+        KeywordExtendKeywordSnapshot: {
+            /** @description Keyword snapshot window. */
+            dataWindow?: components["schemas"]["KeywordExtendSnapshotWindow"];
+            /**
+             * Estimatesearchcount
+             * @description Estimated search count.
+             */
+            estimateSearchCount?: number;
+            /**
+             * Abarank
+             * @description ABA rank.
+             */
+            abaRank?: number;
+            /**
+             * Abatop3Clicksharerate
+             * @description ABA Top 3 click share rate.
+             */
+            abaTop3ClickShareRate?: number;
+            /**
+             * Abatop3Conversionsharerate
+             * @description ABA Top 3 conversion share rate.
+             */
+            abaTop3ConversionShareRate?: number;
+            /**
+             * Marketcharacteristics
+             * @description Market characteristics label.
+             */
+            marketCharacteristics?: string;
+            /**
+             * Totalskucount
+             * @description Total SKU count.
+             */
+            totalSkuCount?: number;
+            /**
+             * Observedskucount
+             * @description Observed SKU count.
+             */
+            observedSkuCount?: number;
+            /**
+             * Brandcount
+             * @description Brand count.
+             */
+            brandCount?: number;
+            /**
+             * Titledensity
+             * @description Title density.
+             */
+            titleDensity?: number;
+            /**
+             * Organicrolloverrate
+             * @description Organic rollover rate.
+             */
+            organicRolloverRate?: number;
+            /**
+             * Amazonchoiceskucount
+             * @description Amazon Choice SKU count.
+             */
+            amazonChoiceSkuCount?: number;
+            /**
+             * Organicskucount
+             * @description Organic SKU count.
+             */
+            organicSkuCount?: number;
+            /**
+             * Sponsoredproductskucount
+             * @description Sponsored Product SKU count.
+             */
+            sponsoredProductSkuCount?: number;
+            /**
+             * Sponsoredbrandskucount
+             * @description Sponsored Brand SKU count.
+             */
+            sponsoredBrandSkuCount?: number;
+            /**
+             * Sponsoredbrandvideoskucount
+             * @description Sponsored Brand Video SKU count.
+             */
+            sponsoredBrandVideoSkuCount?: number;
+            /**
+             * Sponsoredrecommendskucount
+             * @description Sponsored recommend SKU count.
+             */
+            sponsoredRecommendSkuCount?: number;
+            /**
+             * Adcampaigncount
+             * @description Ad campaign count.
+             */
+            adCampaignCount?: number;
+            /**
+             * Adcount
+             * @description Ad count.
+             */
+            adCount?: number;
+            /**
+             * Top48Organicskuavgprice
+             * @description Average price of top 48 organic SKUs.
+             */
+            top48OrganicSkuAvgPrice?: number;
+            /**
+             * Top48Organicskuavgrating
+             * @description Average rating of top 48 organic SKUs.
+             */
+            top48OrganicSkuAvgRating?: number;
+            /**
+             * Top48Organicskuavgratingstotal
+             * @description Average review count of top 48 organic SKUs.
+             */
+            top48OrganicSkuAvgRatingsTotal?: number;
+            /**
+             * Top48Organicskuavgrecentsalecount
+             * @description Average recent sales of top 48 organic SKUs.
+             */
+            top48OrganicSkuAvgRecentSaleCount?: number;
+        };
+        /** KeywordExtendMatchData */
+        KeywordExtendMatchData: {
+            /**
+             * Query
+             * @description Seed query.
+             */
+            query?: string;
+            /**
+             * Keyword
+             * @description Expanded ABA keyword.
+             */
+            keyword?: string;
             /**
              * Site
-             * @description 站点代码
+             * @description Marketplace site code.
              */
             site?: string;
             /**
-             * Seedkeyword
-             * @description 种子关键词
-             */
-            seedKeyword?: string;
-            /**
              * Relevancescore
-             * @description 相关性得分
+             * @description Relevance score.
              */
             relevanceScore?: number;
+        };
+        /** KeywordExtendSnapshotWindow */
+        KeywordExtendSnapshotWindow: {
+            /** @description Current snapshot period. */
+            currentPeriod?: components["schemas"]["KeywordPeriodWindowItem"];
+        };
+        /** KeywordExtendsContext */
+        KeywordExtendsContext: {
+            /**
+             * Marketplace
+             * @description Marketplace.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Coveragetype
+             * @description Expansion coverage type.
+             * @default unknown
+             */
+            coverageType: string;
+            /**
+             * Coveragereason
+             * @description Coverage reason.
+             */
+            coverageReason?: string;
+        };
+        /** KeywordExtendsData */
+        KeywordExtendsData: {
+            /** @description Keyword expansion context. */
+            context: components["schemas"]["KeywordExtendsContext"];
+            /**
+             * Query
+             * @description Seed query.
+             */
+            query: string;
+            /**
+             * Querytype
+             * @description Expansion type.
+             */
+            queryType: string;
+            /**
+             * Rows
+             * @description Expanded keyword rows.
+             */
+            rows?: components["schemas"]["KeywordExtendItem"][];
         };
         /** KeywordExtendsRequest */
         KeywordExtendsRequest: {
             /**
              * Marketplace
-             * @description 亚马逊站点代码
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
             /**
              * Page
-             * @description 页码，从 1 开始
+             * @description Page number, starting at 1.
              * @default 1
              */
             page: number;
             /**
              * Pagesize
-             * @description 每页条数，最大 100
+             * @description Items per page; 1 to 100.
              * @default 20
              */
             pageSize: number;
             /**
-             * Date
-             * @description 查询日期，格式 YYYY-MM-DD。数据按周快照存储，返回该日期当日或之前最近一期快照数据。
-             */
-            date: string;
-            /**
              * Query
-             * @description 种子关键词
+             * @description Seed keyword.
              */
             query: string;
             /**
              * Querytype
-             * @description 扩词匹配模式，目前支持 `phrase` 和 `fuzzy`，不支持 `exact`
+             * @description Keyword expansion match mode.
              * @default phrase
              * @enum {string}
              */
             queryType: "phrase" | "fuzzy";
             /**
              * Sortby
-             * @description 排序字段
+             * @description Sort field: relevanceScore=expansion relevance; estimateSearchCount=estimated searches; abaRank=numeric ABA rank; keyword=lexical order.
              * @default relevanceScore
              * @enum {string}
              */
-            sortBy: "relevanceScore" | "estimateSearchCount" | "abaRank" | "observedAt" | "keyword";
+            sortBy: "relevanceScore" | "estimateSearchCount" | "abaRank" | "keyword";
             /**
              * Sortorder
-             * @description 排序方向
+             * @description Sort direction.
              * @default desc
              * @enum {string}
              */
             sortOrder: "asc" | "desc";
         };
+        /** KeywordMarketCharacteristics */
+        KeywordMarketCharacteristics: {
+            /** @description Market volatility characteristics. */
+            volatility?: components["schemas"]["KeywordMarketVolatility"];
+            /** @description Annual seasonality evidence. */
+            annualSeasonality?: components["schemas"]["KeywordMarketProfileAnnualSeasonality"];
+        };
+        /** KeywordMarketProfileAnnualSeasonality */
+        KeywordMarketProfileAnnualSeasonality: {
+            /**
+             * Supported
+             * @description Whether annual seasonality can be calculated.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Annual-seasonality calculation status.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason annual seasonality cannot be calculated.
+             */
+            unsupportedReason?: string;
+            /**
+             * Classification
+             * @description Annual-seasonality classification.
+             */
+            classification?: "seasonal" | "non_seasonal";
+            /** @description Evidence for the annual-seasonality classification. */
+            classificationEvidence?: components["schemas"]["KeywordAnnualSeasonalityClassificationEvidence"];
+        };
+        /** KeywordMarketProfileBatchItem */
+        KeywordMarketProfileBatchItem: {
+            /** @description Query identity. */
+            identity: components["schemas"]["KeywordDetailIdentityItem"];
+            /**
+             * Status
+             * @description Business result status.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /** @description Multidimensional keyword snapshot profile metrics. */
+            marketProfile?: components["schemas"]["KeywordMarketProfileMetrics"];
+            /**
+             * Emptyreason
+             * @description Reason returned when status=empty.
+             */
+            emptyReason?: string;
+        };
+        /** KeywordMarketProfileContext */
+        KeywordMarketProfileContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Requesteddate
+             * @description Requested date.
+             */
+            requestedDate: string;
+            /**
+             * Resolveddate
+             * @description Resolved date.
+             */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @description Time granularity.
+             */
+            granularity: string;
+            /** @description Keyword snapshot metric window. */
+            dataWindow?: components["schemas"]["KeywordDataWindowItem"];
+            /** @description Standardized scoring specification used by profile metrics. */
+            scoringSpec?: components["schemas"]["KeywordMarketProfileScoringSpec"];
+        };
+        /** KeywordMarketProfileData */
+        KeywordMarketProfileData: {
+            /** @description Keyword market profile query context. */
+            context: components["schemas"]["KeywordMarketProfileContext"];
+            /**
+             * Items
+             * @description Batch items.
+             */
+            items?: components["schemas"]["KeywordMarketProfileBatchItem"][];
+        };
+        /** KeywordMarketProfileMetrics */
+        KeywordMarketProfileMetrics: {
+            /** @description Market volatility and annual-seasonality characteristics. */
+            marketCharacteristics?: components["schemas"]["KeywordMarketCharacteristics"];
+            /** @description Demand scale profile. */
+            demandScale?: components["schemas"]["KeywordDemandScaleProfile"];
+            /** @description ABA Top 3 click and conversion concentration profile. */
+            top3Concentration?: components["schemas"]["KeywordTop3ConcentrationProfile"];
+            /** @description Advertising activity profile. */
+            adActivity?: components["schemas"]["KeywordAdActivityProfile"];
+            /** @description Top 20 organic entry difficulty profile. */
+            top20OrganicEntryDifficulty?: components["schemas"]["KeywordTop20OrganicEntryDifficultyProfile"];
+            /** @description Supply saturation profile. */
+            supplySaturation?: components["schemas"]["KeywordSupplySaturationProfile"];
+            /** @description Brand structure profile. */
+            brandStructure?: components["schemas"]["KeywordBrandStructureProfile"];
+            /** @description Leading organic product benchmark profile. */
+            organicProductBenchmark?: components["schemas"]["KeywordOrganicProductBenchmarkProfile"];
+        };
+        /** KeywordMarketProfilePeakPeriod */
+        KeywordMarketProfilePeakPeriod: {
+            /**
+             * Peakperiodstartweekdate
+             * @description Start date of the peak period week.
+             */
+            peakPeriodStartWeekDate?: string;
+            /**
+             * Peakperiodendweekdate
+             * @description End date of the peak period week.
+             */
+            peakPeriodEndWeekDate?: string;
+            /**
+             * Peakvolumeweekdate
+             * @description Week date on which search volume peaks.
+             */
+            peakVolumeWeekDate?: string;
+            /** @description Statistical evidence for the peak period. */
+            evidence?: components["schemas"]["KeywordMarketProfilePeakPeriodEvidence"];
+        };
+        /** KeywordMarketProfilePeakPeriodEvidence */
+        KeywordMarketProfilePeakPeriodEvidence: {
+            /** @description Peak-search-volume metric. */
+            peakSearchVolume?: components["schemas"]["KeywordPeakSearchVolumeMetric"];
+            /** @description Average-search-volume metric. */
+            avgSearchVolume?: components["schemas"]["KeywordAverageSearchVolumeMetric"];
+            /** @description Peak-to-average-ratio metric. */
+            peakToAvgRatio?: components["schemas"]["KeywordPeakToAverageRatioMetric"];
+        };
+        /** KeywordMarketProfileRequest */
+        KeywordMarketProfileRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Date
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest profile on or before this date; actual date is `resolvedDate`.
+             */
+            date: string;
+            /**
+             * Keyword
+             * @description Single keyword; mutually exclusive with `keywords`. Surrounding whitespace is trimmed; letter case is accepted.
+             */
+            keyword?: string;
+            /**
+             * Keywords
+             * @description Keyword list, up to 20; mutually exclusive with `keyword`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected. Duplicate keywords are rejected.
+             */
+            keywords?: string[];
+        };
+        /** KeywordMarketProfileScoreRange */
+        KeywordMarketProfileScoreRange: {
+            /**
+             * Min
+             * @description Lower bound of the normalized score range.
+             */
+            min?: number;
+            /**
+             * Max
+             * @description Upper bound of the normalized score range.
+             */
+            max?: number;
+        };
+        /** KeywordMarketProfileScoringSpec */
+        KeywordMarketProfileScoringSpec: {
+            /**
+             * Id
+             * @description Scoring specification identifier.
+             */
+            id?: "keyword_market_profile";
+            /**
+             * Version
+             * @description Scoring specification version.
+             */
+            version?: "1.0";
+            /**
+             * Scoretype
+             * @description Type of score emitted by profile dimensions.
+             */
+            scoreType?: "normalized_index";
+            /** @description Range of normalized profile scores. */
+            scoreRange?: components["schemas"]["KeywordMarketProfileScoreRange"];
+            /**
+             * Referencescope
+             * @description Reference population used for scoring.
+             */
+            referenceScope?: "same_marketplace";
+        };
+        /** KeywordMarketVolatility */
+        KeywordMarketVolatility: {
+            /**
+             * Supported
+             * @description Whether volatility type can be calculated.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Volatility-type calculation status.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason volatility type cannot be calculated.
+             */
+            unsupportedReason?: string;
+            /**
+             * Type
+             * @description Market volatility type.
+             */
+            type?: string;
+            /** @description Evidence for the volatility-type mapping. */
+            evidence?: components["schemas"]["KeywordMarketVolatilityEvidence"];
+        };
+        /** KeywordMarketVolatilityEvidence */
+        KeywordMarketVolatilityEvidence: {
+            /**
+             * Sourcevalue
+             * @description Source value used for volatility-type mapping.
+             */
+            sourceValue?: string;
+            /** @description Volatility-type mapping-confidence metric. */
+            mappingConfidence?: components["schemas"]["KeywordVolatilityMappingConfidenceMetric"];
+        };
+        /** KeywordOrganicEntryDifficultyLevelEvidence */
+        KeywordOrganicEntryDifficultyLevelEvidence: {
+            /** @description Organic entry-difficulty score metric. */
+            score?: components["schemas"]["KeywordOrganicEntryDifficultyScoreMetric"];
+        };
+        /** KeywordOrganicEntryDifficultyScoreMetric */
+        KeywordOrganicEntryDifficultyScoreMetric: {
+            /**
+             * Value
+             * @description Organic entry-difficulty score.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means greater entry difficulty.
+             */
+            direction?: "higher_means_more_difficult";
+        };
+        /** KeywordOrganicProductBarrierLevelEvidence */
+        KeywordOrganicProductBarrierLevelEvidence: {
+            /** @description Leading organic-product barrier score metric. */
+            score?: components["schemas"]["KeywordOrganicProductBarrierScoreMetric"];
+        };
+        /** KeywordOrganicProductBarrierScoreMetric */
+        KeywordOrganicProductBarrierScoreMetric: {
+            /**
+             * Value
+             * @description Leading organic-product barrier score.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means a higher barrier.
+             */
+            direction?: "higher_means_higher_barrier";
+        };
+        /** KeywordOrganicProductBenchmarkProfile */
+        KeywordOrganicProductBenchmarkProfile: {
+            /**
+             * Supported
+             * @description Whether this profile dimension is supported.
+             */
+            supported?: boolean;
+            /**
+             * Level
+             * @description Leading organic-product barrier level.
+             */
+            level?: "low" | "medium" | "high" | "unknown";
+            /**
+             * Interpretation
+             * @description Leading organic-product barrier interpretation.
+             */
+            interpretation?: "low_barrier" | "medium_barrier" | "high_barrier" | "unknown";
+            /**
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
+             */
+            unsupportedReason?: string;
+            /** @description Evidence for the leading organic-product barrier level. */
+            levelEvidence?: components["schemas"]["KeywordOrganicProductBarrierLevelEvidence"];
+        };
+        /** KeywordPeakSearchVolumeMetric */
+        KeywordPeakSearchVolumeMetric: {
+            /**
+             * Value
+             * @description Search volume in the peak week.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means stronger peak demand.
+             */
+            direction?: "higher_means_stronger_peak_demand";
+        };
+        /** KeywordPeakToAverageRatioMetric */
+        KeywordPeakToAverageRatioMetric: {
+            /**
+             * Value
+             * @description Ratio of peak to average search volume.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means a more pronounced peak.
+             */
+            direction?: "higher_means_more_pronounced_peak";
+        };
+        /** KeywordPeriodItem */
+        KeywordPeriodItem: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate?: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate?: string;
+        };
+        /** KeywordPeriodWindowItem */
+        KeywordPeriodWindowItem: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate?: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate?: string;
+        };
+        /** KeywordQueryIdentityItem */
+        KeywordQueryIdentityItem: {
+            /**
+             * Keyword
+             * @description Keyword.
+             */
+            keyword: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+        };
+        /** KeywordRankImprovementCountMetric */
+        KeywordRankImprovementCountMetric: {
+            /**
+             * Value
+             * @description Rank-improvement count.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A positive value means rank improvement.
+             */
+            direction?: "positive_means_rank_improvement";
+        };
+        /** KeywordSearchDemandNormalizedSlopeMetric */
+        KeywordSearchDemandNormalizedSlopeMetric: {
+            /**
+             * Value
+             * @description Normalized demand slope per period.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A positive value means demand is rising.
+             */
+            direction?: "positive_means_demand_rising";
+        };
+        /** KeywordSearchDemandTrend */
+        KeywordSearchDemandTrend: {
+            /**
+             * Supported
+             * @description Whether the search-demand trend can be calculated.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Calculation status of the search-demand trend.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason the search-demand trend cannot be calculated.
+             */
+            unsupportedReason?: string;
+            /**
+             * Trend
+             * @description Overall search-demand trend.
+             */
+            trend?: "rising" | "falling" | "stable";
+            /** @description Statistical evidence for the search-demand trend. */
+            trendEvidence?: components["schemas"]["KeywordSearchDemandTrendEvidence"];
+            /**
+             * Volatilitylevel
+             * @description Search-demand volatility level.
+             */
+            volatilityLevel?: "low" | "moderate" | "high";
+            /**
+             * Lastperiodwindowposition
+             * @description Position of the last-period value within the window.
+             */
+            lastPeriodWindowPosition?: "low" | "middle" | "high";
+        };
+        /** KeywordSearchDemandTrendEvidence */
+        KeywordSearchDemandTrendEvidence: {
+            /** @description First-window-period estimated-search-count metric. */
+            firstPeriodEstimateSearchCount?: components["schemas"]["KeywordEstimateSearchCountMetric"];
+            /** @description Last-window-period estimated-search-count metric. */
+            lastPeriodEstimateSearchCount?: components["schemas"]["KeywordEstimateSearchCountMetric"];
+            /** @description First-to-last estimated-search-count change-rate metric. */
+            firstToLastEstimateSearchCountChangeRate?: components["schemas"]["KeywordEstimateSearchCountChangeRateMetric"];
+            /** @description Previous-to-last estimated-search-count change-rate metric. */
+            previousToLastEstimateSearchCountChangeRate?: components["schemas"]["KeywordEstimateSearchCountChangeRateMetric"];
+            /** @description Normalized demand-slope metric. */
+            normalizedSlopePerPeriod?: components["schemas"]["KeywordSearchDemandNormalizedSlopeMetric"];
+            /** @description Trend direction-consistency-rate metric. */
+            directionConsistencyRate?: components["schemas"]["KeywordTrendDirectionConsistencyRateMetric"];
+            /** @description Aligned-period-count metric. */
+            alignedPeriodCount?: components["schemas"]["KeywordTrendAlignedPeriodCountMetric"];
+            /** @description Eligible-period-pair-count metric. */
+            eligiblePeriodPairCount?: components["schemas"]["KeywordTrendEligiblePeriodPairCountMetric"];
+        };
         /** KeywordSearchResultItem */
         KeywordSearchResultItem: {
             /**
-             * Observedat
-             * @description 数据观测时间
+             * Latestobservedat
+             * @description Latest observation timestamp.
              */
-            observedAt?: string;
+            latestObservedAt?: string;
             /**
              * Exploretype
-             * @description 曝光位置类型
+             * @description Explore placement type.
              */
             exploreType?: string;
             /**
              * Absoluteposition
-             * @description 绝对排名位置
+             * @description Absolute ranking position.
              */
             absolutePosition?: number;
             /**
              * Pageindex
-             * @description 页索引，从 1 开始
+             * @description One-based page index.
              */
             pageIndex?: number;
             /**
              * Pageposition
-             * @description 页内位置
+             * @description Position within the page.
              */
             pagePosition?: number;
             /**
              * Asin
-             * @description 商品 ASIN
+             * @description Product ASIN.
              */
-            asin: string;
+            asin?: string;
             /**
              * Title
-             * @description 商品标题
+             * @description Product title.
              */
             title?: string;
             /**
              * Brand
-             * @description 品牌名称
+             * @description Brand name.
              */
             brand?: string;
             /**
              * Price
-             * @description 商品价格
+             * @description Product price.
              */
             price?: number;
             /**
              * Currency
-             * @description 货币代码
+             * @description Currency code.
              */
             currency?: string;
             /**
              * Link
-             * @description 商品链接
+             * @description Product URL.
              */
             link?: string;
             /**
              * Imagelink
-             * @description 商品图片链接
+             * @description Product image URL.
              */
             imageLink?: string;
             /**
              * Rating
-             * @description 商品评分
+             * @description Product rating.
              */
             rating?: number;
             /**
              * Ratingcount
-             * @description 评分数量
+             * @description Rating count.
              */
             ratingCount?: number;
             /**
              * Recentsales
-             * @description 近期销量
+             * @description Recent sales.
              */
             recentSales?: number;
             /**
              * Hasvideo
-             * @description 是否带视频
+             * @description Whether the listing has video.
              */
             hasVideo?: boolean;
             /**
              * Estimateimpressionpoint
-             * @description 预估曝光分值
+             * @description Estimated impression point.
              */
             estimateImpressionPoint?: number;
             /**
              * Keywordtotalestimateimpressionpoint
-             * @description 该关键词总预估曝光分值
+             * @description Total estimated impression point for the keyword.
              */
             keywordTotalEstimateImpressionPoint?: number;
+        };
+        /**
+         * KeywordSearchResultsContext
+         * @description Period-based context returned by keyword search-results v3.
+         */
+        KeywordSearchResultsContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Requesteddate
+             * @description Requested date.
+             */
+            requestedDate: string;
+            /**
+             * Resolveddate
+             * @description Resolved date.
+             */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @description Period granularity.
+             */
+            granularity: string;
+            /** @description Data period window. */
+            dataWindow?: components["schemas"]["KeywordDataWindowItem"];
+        };
+        /** KeywordSearchResultsData */
+        KeywordSearchResultsData: {
+            /** @description Keyword SERP period context. */
+            context: components["schemas"]["KeywordSearchResultsContext"];
+            /** @description Query identity. */
+            identity: components["schemas"]["KeywordQueryIdentityItem"];
+            /**
+             * Rows
+             * @description SERP rows.
+             */
+            rows?: components["schemas"]["KeywordSearchResultItem"][];
         };
         /** KeywordSearchResultsRequest */
         KeywordSearchResultsRequest: {
             /**
              * Marketplace
-             * @description 亚马逊站点代码
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
             /**
              * Page
-             * @description 页码，从 1 开始
+             * @description Page number, starting at 1.
              * @default 1
              */
             page: number;
             /**
              * Pagesize
-             * @description 每页条数，最大 100
+             * @description Items per page; 1 to 100.
              * @default 20
              */
             pageSize: number;
             /**
              * Exploretypes
-             * @description 可选的曝光位置筛选；为空时表示返回全部位置类型
+             * @description Optional placement filter. Empty means all result types. Allowed values: ORG/SP/SB/SBV/SPR.
              */
             exploreTypes?: ("ORG" | "SP" | "SB" | "SBV" | "SPR")[];
             /**
              * Date
-             * @description 查询日期，格式 YYYY-MM-DD。数据按天快照存储，保留最近 7 天，返回该日期当日或之前最近一个快照数据。
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest snapshot on or before this date; actual date is `resolvedDate`.
              */
             date: string;
             /**
              * Keyword
-             * @description 要搜索的关键词
+             * @description Keyword to search.
              */
             keyword: string;
             /**
              * Sortby
-             * @description 排序字段
+             * @description Sort field: absolutePosition=SERP position; estimateImpressionPoint=estimated impressions; latestObservedAt=latest observation; price, rating, ratingCount, and recentSales use their named product metrics; asin and title use lexical order.
              * @default absolutePosition
              * @enum {string}
              */
-            sortBy: "absolutePosition" | "estimateImpressionPoint" | "observedAt" | "price" | "rating" | "ratingCount" | "recentSales" | "asin" | "title";
+            sortBy: "absolutePosition" | "estimateImpressionPoint" | "latestObservedAt" | "price" | "rating" | "ratingCount" | "recentSales" | "asin" | "title";
             /**
              * Sortorder
-             * @description 排序方向
+             * @description Sort direction. The default `absolutePosition asc` returns the lowest rank numbers first.
              * @default asc
              * @enum {string}
              */
             sortOrder: "asc" | "desc";
         };
-        /** KeywordTrendItem */
-        KeywordTrendItem: {
+        /** KeywordSnapshotContext */
+        KeywordSnapshotContext: {
             /**
-             * Prevabarank
-             * @description 上一周期 ABA 排名
+             * Marketplace
+             * @description Amazon marketplace code.
              */
-            prevAbaRank?: number;
+            marketplace: string;
             /**
-             * Prevestimatesearchcount
-             * @description 上一周期预估搜索量
+             * Site
+             * @description Marketplace site code.
              */
-            prevEstimateSearchCount?: number;
+            site: string;
             /**
-             * Estimatesearchchangecount
-             * @description 预估搜索量变化值
+             * Requesteddate
+             * @description Requested date.
              */
-            estimateSearchChangeCount?: number;
+            requestedDate: string;
             /**
-             * Estimatesearchchangerate
-             * @description 预估搜索量变化率
+             * Resolveddate
+             * @description Resolved date.
              */
-            estimateSearchChangeRate?: number;
+            resolvedDate?: string;
             /**
-             * Observedat
-             * @description 数据观测时间
+             * Granularity
+             * @description Time granularity.
              */
-            observedAt?: string;
+            granularity: string;
+            /** @description Keyword snapshot metric window. */
+            dataWindow?: components["schemas"]["KeywordDataWindowItem"];
+        };
+        /** KeywordSupplySaturationLevelEvidence */
+        KeywordSupplySaturationLevelEvidence: {
+            /** @description Supply-saturation score metric. */
+            score?: components["schemas"]["KeywordSupplySaturationScoreMetric"];
+        };
+        /** KeywordSupplySaturationProfile */
+        KeywordSupplySaturationProfile: {
+            /**
+             * Supported
+             * @description Whether this profile dimension is supported.
+             */
+            supported?: boolean;
+            /**
+             * Level
+             * @description Supply-saturation level.
+             */
+            level?: "low" | "medium" | "high" | "unknown";
+            /**
+             * Interpretation
+             * @description Supply-saturation interpretation.
+             */
+            interpretation?: "low_saturation" | "moderate_saturation" | "high_saturation" | "unknown";
+            /**
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
+             */
+            unsupportedReason?: string;
+            /** @description Evidence for the supply-saturation level. */
+            levelEvidence?: components["schemas"]["KeywordSupplySaturationLevelEvidence"];
+        };
+        /** KeywordSupplySaturationScoreMetric */
+        KeywordSupplySaturationScoreMetric: {
+            /**
+             * Value
+             * @description Supply-saturation score.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means greater supply saturation.
+             */
+            direction?: "higher_means_more_saturated";
+        };
+        /** KeywordTop20OrganicEntryDifficultyProfile */
+        KeywordTop20OrganicEntryDifficultyProfile: {
+            /**
+             * Supported
+             * @description Whether this profile dimension is supported.
+             */
+            supported?: boolean;
+            /**
+             * Level
+             * @description Top 20 organic entry-difficulty level.
+             */
+            level?: "low" | "medium" | "high" | "unknown";
+            /**
+             * Interpretation
+             * @description Top 20 organic entry-difficulty interpretation.
+             */
+            interpretation?: "easy" | "moderate" | "difficult" | "unknown";
+            /**
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
+             */
+            unsupportedReason?: string;
+            /** @description Evidence for the Top 20 organic entry-difficulty level. */
+            levelEvidence?: components["schemas"]["KeywordOrganicEntryDifficultyLevelEvidence"];
+        };
+        /** KeywordTop3ConcentrationProfile */
+        KeywordTop3ConcentrationProfile: {
+            /**
+             * Supported
+             * @description Whether this profile dimension is supported.
+             */
+            supported?: boolean;
+            /**
+             * Level
+             * @description Top 3 concentration level.
+             */
+            level?: "low" | "medium" | "high" | "unknown";
+            /**
+             * Interpretation
+             * @description Top 3 concentration interpretation.
+             */
+            interpretation?: "low_concentration" | "moderate_concentration" | "high_concentration" | "unknown";
+            /**
+             * Calculationstatus
+             * @description Calculation status for this profile dimension.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Reason this profile dimension could not be calculated.
+             */
+            unsupportedReason?: string;
+            /** @description Evidence for the Top 3 concentration level. */
+            levelEvidence?: components["schemas"]["KeywordConcentrationLevelEvidence"];
+        };
+        /** KeywordTrendAlignedPeriodCountMetric */
+        KeywordTrendAlignedPeriodCountMetric: {
+            /**
+             * Value
+             * @description Number of period pairs aligned with the overall trend direction.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means more aligned period pairs.
+             */
+            direction?: "higher_means_more_aligned_period_pairs";
+        };
+        /** KeywordTrendBatchItem */
+        KeywordTrendBatchItem: {
+            /** @description Query identity. */
+            identity: components["schemas"]["KeywordQueryIdentityItem"];
+            /**
+             * Status
+             * @description Business result status.
+             * @enum {string}
+             */
+            status: "ok" | "empty" | "error";
+            /**
+             * Series
+             * @description Trend series.
+             */
+            series?: components["schemas"]["KeywordTrendSeriesItem"][];
+            /**
+             * Emptyreason
+             * @description Empty reason.
+             */
+            emptyReason?: string;
+            /**
+             * Errorcode
+             * @description Error code.
+             */
+            errorCode?: string;
+            /**
+             * Errormessage
+             * @description Error message.
+             */
+            errorMessage?: string;
+        };
+        /** KeywordTrendContext */
+        KeywordTrendContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Requesteddatefrom
+             * @description Requested start date.
+             */
+            requestedDateFrom: string;
+            /**
+             * Requesteddateto
+             * @description Requested end date.
+             */
+            requestedDateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description Resolved start date.
+             */
+            resolvedDateFrom?: string;
+            /**
+             * Resolveddateto
+             * @description Resolved end date.
+             */
+            resolvedDateTo?: string;
+            /**
+             * Granularity
+             * @description Time granularity.
+             */
+            granularity: string;
+        };
+        /** KeywordTrendData */
+        KeywordTrendData: {
+            /** @description Keyword trend query context. */
+            context: components["schemas"]["KeywordTrendContext"];
+            /**
+             * Items
+             * @description Batch items.
+             */
+            items?: components["schemas"]["KeywordTrendBatchItem"][];
+        };
+        /** KeywordTrendDirectionConsistencyRateMetric */
+        KeywordTrendDirectionConsistencyRateMetric: {
+            /**
+             * Value
+             * @description Share of period pairs aligned with the overall trend direction.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means greater directional consistency.
+             */
+            direction?: "higher_means_more_directionally_consistent";
+        };
+        /** KeywordTrendEligiblePeriodPairCountMetric */
+        KeywordTrendEligiblePeriodPairCountMetric: {
+            /**
+             * Value
+             * @description Number of period pairs eligible for trend evaluation.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means more eligible period pairs.
+             */
+            direction?: "higher_means_more_eligible_period_pairs";
+        };
+        /** KeywordTrendProfileAnalysisWindow */
+        KeywordTrendProfileAnalysisWindow: {
             /**
              * Periodstartdate
-             * @description 统计周期开始日期
+             * @description Period start date.
              */
             periodStartDate?: string;
             /**
              * Periodenddate
-             * @description 统计周期结束日期
+             * @description Period end date.
              */
             periodEndDate?: string;
+        };
+        /** KeywordTrendProfileBatchItem */
+        KeywordTrendProfileBatchItem: {
+            /** @description Keyword identity. */
+            identity: components["schemas"]["KeywordQueryIdentityItem"];
+            /**
+             * Rows
+             * @description Profile results in requested-window order.
+             */
+            rows?: components["schemas"]["KeywordTrendProfileRow"][];
+        };
+        /** KeywordTrendProfileContext */
+        KeywordTrendProfileContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+            /**
+             * Requesteddate
+             * @description Requested date.
+             */
+            requestedDate: string;
+            /**
+             * Resolveddate
+             * @description Resolved snapshot date.
+             */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @description Time granularity.
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Windowperiods
+             * @description Requested analysis-window period counts.
+             */
+            windowPeriods: (4 | 8 | 12 | 26)[];
+        };
+        /** KeywordTrendProfileData */
+        KeywordTrendProfileData: {
+            /** @description Trend-profile query context. */
+            context: components["schemas"]["KeywordTrendProfileContext"];
+            /**
+             * Items
+             * @description Results in requested-keyword order.
+             */
+            items?: components["schemas"]["KeywordTrendProfileBatchItem"][];
+        };
+        /** KeywordTrendProfileMetrics */
+        KeywordTrendProfileMetrics: {
+            /** @description Search-demand trend profile. */
+            searchDemand?: components["schemas"]["KeywordSearchDemandTrend"];
+            /** @description ABA-rank trend profile. */
+            abaRank?: components["schemas"]["KeywordAbaRankTrend"];
+        };
+        /** KeywordTrendProfileRequest */
+        KeywordTrendProfileRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Date
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest profile on or before this date; actual date is `resolvedDate`.
+             */
+            date: string;
             /**
              * Keyword
-             * @description 关键词
+             * @description Single keyword; mutually exclusive with `keywords`. Surrounding whitespace is trimmed; letter case is accepted.
              */
             keyword?: string;
             /**
-             * Site
-             * @description 站点代码
+             * Keywords
+             * @description Keyword list, up to 20; mutually exclusive with `keyword`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected. Duplicate keywords are rejected.
              */
-            site?: string;
+            keywords?: string[];
             /**
-             * Estimatesearchcount
-             * @description 预估搜索量
+             * Windowperiods
+             * @description Fixed period counts for the analysis windows.
              */
-            estimateSearchCount?: number;
+            windowPeriods: (4 | 8 | 12 | 26)[];
+        };
+        /** KeywordTrendProfileRow */
+        KeywordTrendProfileRow: {
+            /** @description Context for the current window result. */
+            rowContext: components["schemas"]["KeywordTrendProfileRowContext"];
             /**
-             * Abarank
-             * @description ABA 排名
+             * Status
+             * @description Business result status.
+             * @enum {string}
              */
-            abaRank?: number;
+            status: "ok" | "empty";
             /**
-             * Rankchangecount
-             * @description 排名变化值
+             * Emptyreason
+             * @description Reason returned when status=empty.
              */
-            rankChangeCount?: number;
+            emptyReason?: string;
+            /** @description Trend-profile metrics for the current window. */
+            trendProfile?: components["schemas"]["KeywordTrendProfileMetrics"];
+        };
+        /** KeywordTrendProfileRowContext */
+        KeywordTrendProfileRowContext: {
+            /**
+             * Windowperiods
+             * @description Period count for this row.
+             * @enum {integer}
+             */
+            windowPeriods: 4 | 8 | 12 | 26;
+            /** @description Actual period covered by the profile. */
+            analysisWindow?: components["schemas"]["KeywordTrendProfileAnalysisWindow"];
+            /**
+             * Observedperiodcount
+             * @description Periods where both source metrics are observed.
+             */
+            observedPeriodCount?: number;
         };
         /** KeywordTrendRequest */
         KeywordTrendRequest: {
             /**
              * Marketplace
-             * @description 亚马逊站点代码
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
             /**
              * Keyword
-             * @description 要查询趋势的关键词
+             * @description Single keyword to look up; mutually exclusive with `keywords`. Surrounding whitespace is trimmed; letter case is accepted.
              */
-            keyword: string;
+            keyword?: string;
+            /**
+             * Keywords
+             * @description Keywords to look up in batch, up to 20; mutually exclusive with `keyword`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected. Duplicate keywords are rejected.
+             */
+            keywords?: string[];
             /**
              * Datefrom
-             * @description 趋势起始日期，格式 YYYY-MM-DD。数据按周粒度统计，返回该起止区间内的快照数据。
+             * Format: date
+             * @description Trend start date (YYYY-MM-DD).
              */
             dateFrom: string;
             /**
              * Dateto
-             * @description 趋势结束日期，格式 YYYY-MM-DD。数据按周粒度统计，返回该起止区间内的快照数据。
+             * Format: date
+             * @description Trend end date (YYYY-MM-DD); on or after `dateFrom`, with a maximum 93-day range. Actual range is `resolvedDateFrom` through `resolvedDateTo`.
+             */
+            dateTo: string;
+        };
+        /** KeywordTrendSeriesItem */
+        KeywordTrendSeriesItem: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate?: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate?: string;
+            /**
+             * Estimatesearchcount
+             * @description Estimated search count.
+             */
+            estimateSearchCount?: number;
+            /**
+             * Abarank
+             * @description ABA rank.
+             */
+            abaRank?: number;
+            /**
+             * Abatop3Clicksharerate
+             * @description ABA Top 3 click share rate.
+             */
+            abaTop3ClickShareRate?: number;
+            /**
+             * Abatop3Conversionsharerate
+             * @description ABA Top 3 conversion share rate.
+             */
+            abaTop3ConversionShareRate?: number;
+        };
+        /** KeywordVolatilityMappingConfidenceMetric */
+        KeywordVolatilityMappingConfidenceMetric: {
+            /**
+             * Value
+             * @description Volatility-type mapping confidence.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means a more confident mapping.
+             */
+            direction?: "higher_means_more_confident_mapping";
+        };
+        /** KeywordYearOverYearPatternCorrelationMetric */
+        KeywordYearOverYearPatternCorrelationMetric: {
+            /**
+             * Value
+             * @description Year-over-year pattern correlation.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description A higher value means greater year-over-year pattern similarity.
+             */
+            direction?: "higher_means_more_year_over_year_pattern_similarity";
+        };
+        /**
+         * MarketBrandTopNMetrics
+         * @description Measures of sample products belonging to brands ranked by monthly unit sales.
+         */
+        MarketBrandTopNMetrics: {
+            /**
+             * Brandtopn
+             * @description Brand rank cutoff: 3, 5, 10, or 20; topNBrandCount gives the actual number selected.
+             */
+            brandTopN: number;
+            /**
+             * Topnbrandcount
+             * @description Actual number of selected known brands.
+             */
+            topNBrandCount?: number | null;
+            /**
+             * Avgbsr
+             * @description Average current main-category BSR of products in the Top N brands.
+             */
+            avgBsr?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per product in the Top N brands.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per product in the Top N brands, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Monthlysales
+             * @description Combined estimated monthly unit sales of products in the Top N brands.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Combined estimated monthly revenue of products in the Top N brands, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Monthlysalesrate
+             * @description Top N brands' share of sample monthly unit sales, ranked by unit sales.
+             */
+            monthlySalesRate?: number | null;
+            /**
+             * Monthlyrevenuerate
+             * @description Share of sample monthly revenue held by the same unit-sales-ranked Top N brands.
+             */
+            monthlyRevenueRate?: number | null;
+        };
+        /**
+         * MarketDistributionRow
+         * @description One market distribution bucket; market identity and dimension live above it.
+         */
+        MarketDistributionRow: {
+            /**
+             * Bucket
+             * @description Bucket label within the requested dimension. Other/unclassified covers products that do not fit a named business group.
+             */
+            bucket?: string | null;
+            /**
+             * Lowerbound
+             * @description Bucket lower bound; uses the dimension's unit, USD for price.
+             */
+            lowerBound?: number | null;
+            /**
+             * Upperbound
+             * @description Bucket upper bound; uses the dimension's unit, USD for price.
+             */
+            upperBound?: number | null;
+            /**
+             * Skucount
+             * @description Number of selected Top 100 products in this bucket.
+             */
+            skuCount?: number | null;
+            /**
+             * Skurate
+             * @description Share of all selected Top 100 products in this bucket, from 0 to 1.
+             */
+            skuRate?: number | null;
+            /**
+             * Monthlysales
+             * @description Estimated monthly unit sales of products in this bucket.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Estimated monthly revenue of products in this bucket, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per product in this bucket.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per product in this bucket, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Salesrate
+             * @description Share of monthly unit sales across the same selected Top 100 products, from 0 to 1.
+             */
+            salesRate?: number | null;
+            /**
+             * Revenuerate
+             * @description Share of monthly revenue across the same selected Top 100 products, from 0 to 1.
+             */
+            revenueRate?: number | null;
+            /**
+             * Amazonselfoperatedskucount
+             * @description Number of Amazon self-operated products in this bucket.
+             */
+            amazonSelfOperatedSkuCount?: number | null;
+            /**
+             * Amazonselfoperatedskurate
+             * @description Amazon self-operated product share within this bucket, from 0 to 1.
+             */
+            amazonSelfOperatedSkuRate?: number | null;
+            /**
+             * Amazonselfoperatedmonthlysales
+             * @description Estimated monthly unit sales of Amazon self-operated products in this bucket.
+             */
+            amazonSelfOperatedMonthlySales?: number | null;
+            /**
+             * Amazonselfoperatedsalesrate
+             * @description Amazon self-operated share of this bucket's monthly unit sales, from 0 to 1.
+             */
+            amazonSelfOperatedSalesRate?: number | null;
+            /**
+             * Amazonselfoperatedmonthlyrevenue
+             * @description Estimated monthly revenue of Amazon self-operated products in this bucket, in USD.
+             */
+            amazonSelfOperatedMonthlyRevenue?: number | null;
+            /**
+             * Amazonselfoperatedrevenuerate
+             * @description Amazon self-operated share of this bucket's monthly revenue, from 0 to 1.
+             */
+            amazonSelfOperatedRevenueRate?: number | null;
+            /**
+             * Avgprice30D
+             * @description Average 30-day product price in this bucket, in USD.
+             */
+            avgPrice30d?: number | null;
+            /**
+             * Avgrating
+             * @description Average star rating of products in this bucket.
+             */
+            avgRating?: number | null;
+            /**
+             * Avgratingcount
+             * @description Average rating count per product in this bucket.
+             */
+            avgRatingCount?: number | null;
+            /**
+             * Brandcount
+             * @description Distinct brands represented in this bucket.
+             */
+            brandCount?: number | null;
+            /**
+             * Sellercount
+             * @description Distinct sellers represented in this bucket.
+             */
+            sellerCount?: number | null;
+            /**
+             * Exampleasins
+             * @description Up to three example ASINs from this bucket.
+             */
+            exampleAsins?: string[] | null;
+            /**
+             * Newproductmetrics
+             * @description New-product measures in this bucket for 1, 3, 6, and 12 calendar months. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
+             */
+            newProductMetrics?: components["schemas"]["MarketNewProductCountMetrics"][];
+        };
+        /** MarketHistory */
+        MarketHistory: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code; currently US.
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Categoryid
+             * @description Amazon category node ID defining this market.
+             */
+            categoryId: string;
+            /**
+             * Includedescendantcategoryproducts
+             * @description Whether market metrics include products from descendant categories, with products deduplicated.
+             */
+            includeDescendantCategoryProducts: boolean;
+            /**
+             * Sampletype
+             * @description Top 100 selection method: unitSalesTop100 ranks by estimated monthly units sold; revenueTop100 ranks by estimated monthly revenue.
+             * @enum {string}
+             */
+            sampleType: "unitSalesTop100" | "revenueTop100";
+            /**
+             * Currency
+             * @description Currency for monetary metrics, currently USD.
+             */
+            currency?: string | null;
+            /**
+             * Datefrom
+             * Format: date
+             * @description Requested first date of the history range.
+             */
+            dateFrom: string;
+            /**
+             * Dateto
+             * Format: date
+             * @description Requested last date of the history range.
+             */
+            dateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description First published snapshot date returned; omitted when no snapshots match.
+             */
+            resolvedDateFrom?: string | null;
+            /**
+             * Resolveddateto
+             * @description Last published snapshot date returned; omitted when no snapshots match.
+             */
+            resolvedDateTo?: string | null;
+            /**
+             * Points
+             * @description Available month-end snapshots in ascending date order; missing months are not filled.
+             */
+            points: components["schemas"]["MarketHistoryRow"][];
+        };
+        /** MarketHistoryRequest */
+        MarketHistoryRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace; currently US only.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Categoryid
+             * @description Amazon category node ID to analyze.
+             */
+            categoryId: string;
+            /**
+             * Includedescendantcategoryproducts
+             * @description Whether market metrics include products assigned to descendant category nodes; defaults to true.
+             * @default true
+             */
+            includeDescendantCategoryProducts: boolean;
+            /**
+             * Sampletype
+             * @description How to select the Top 100 products within the category scope: by estimated monthly unit sales or by estimated monthly revenue.
+             * @default unitSalesTop100
+             * @enum {string}
+             */
+            sampleType: "unitSalesTop100" | "revenueTop100";
+            /**
+             * Datefrom
+             * Format: date
+             * @description First date of the requested history range (YYYY-MM-DD), inclusive.
+             */
+            dateFrom: string;
+            /**
+             * Dateto
+             * Format: date
+             * @description Last date of the requested history range (YYYY-MM-DD), inclusive; must be on or after dateFrom.
              */
             dateTo: string;
         };
         /**
-         * Market
-         * @description Market analysis data for a category. 'Sample' fields are based on the top products selected by sampleType parameter.
+         * MarketHistoryRow
+         * @description One available month-end market snapshot grouped by statistical scope.
          */
-        Market: {
+        MarketHistoryRow: {
             /**
-             * Currency
-             * @description ISO 4217 currency code for all monetary fields.
-             * @default USD
+             * Date
+             * Format: date
+             * @description Actual month-end snapshot date (YYYY-MM-DD).
              */
-            currency: string;
+            date: string;
+            /** @description Measures for all products in the category scope. */
+            marketTotal: components["schemas"]["MarketHistoryTotalMetrics"];
+            /** @description Measures for the selected Top 100 products. */
+            marketSample: components["schemas"]["MarketHistorySampleMetrics"];
+        };
+        /**
+         * MarketHistorySampleMetrics
+         * @description One history point for the selected Top 100 sample.
+         */
+        MarketHistorySampleMetrics: {
+            /**
+             * Skucount
+             * @description Actual number of selected products in this snapshot.
+             */
+            skuCount?: number | null;
+            /**
+             * Monthlysales
+             * @description Estimated monthly unit sales of selected products.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Estimated monthly revenue of selected products, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per selected product.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per selected product, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Newproductmetrics
+             * @description Selected-sample new-product measures for 1, 3, 6, and 12 calendar months. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
+             */
+            newProductMetrics?: components["schemas"]["MarketSampleNewProductMetrics"][];
+        };
+        /**
+         * MarketHistoryTotalMetrics
+         * @description One history point for the full category scope.
+         */
+        MarketHistoryTotalMetrics: {
+            /**
+             * Skucount
+             * @description Number of products in the full category scope.
+             */
+            skuCount?: number | null;
+            /**
+             * Spucount
+             * @description Number of parent-product groups in the full category scope.
+             */
+            spuCount?: number | null;
+            /**
+             * Monthlysales
+             * @description Estimated monthly unit sales across the full category scope.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Estimated monthly revenue across the full category scope, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per product in the full category scope.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per product in the full category scope, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Newproductmetrics
+             * @description Full-category new-product measures for 1, 3, 6, and 12 calendar months. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
+             */
+            newProductMetrics?: components["schemas"]["MarketTotalNewProductMetrics"][];
+        };
+        /**
+         * MarketNewProductCountMetrics
+         * @description New-product counts, shares, sales, and averages for a sample or bucket.
+         */
+        MarketNewProductCountMetrics: {
+            /**
+             * Periodmonths
+             * @description New-product window in calendar months: 1, 3, 6, or 12.
+             */
+            periodMonths: number;
+            /**
+             * Newskucount
+             * @description Number of SKUs classified as new for this calendar-month window.
+             */
+            newSkuCount?: number | null;
+            /**
+             * Newskurate
+             * @description New-SKU count divided by all SKUs in the enclosing marketSample or distribution bucket, from 0 to 1.
+             */
+            newSkuRate?: number | null;
+            /**
+             * Newskumonthlysales
+             * @description Combined estimated monthly unit sales of new SKUs.
+             */
+            newSkuMonthlySales?: number | null;
+            /**
+             * Newskumonthlyrevenue
+             * @description Combined estimated monthly revenue of new SKUs, in USD.
+             */
+            newSkuMonthlyRevenue?: number | null;
+            /**
+             * Newskuavgmonthlysales
+             * @description Average estimated monthly unit sales per new SKU.
+             */
+            newSkuAvgMonthlySales?: number | null;
+            /**
+             * Newskuavgmonthlyrevenue
+             * @description Average estimated monthly revenue per new SKU, in USD.
+             */
+            newSkuAvgMonthlyRevenue?: number | null;
+        };
+        /**
+         * MarketProductTopNMetrics
+         * @description Measures of the same products ranked by estimated monthly unit sales.
+         */
+        MarketProductTopNMetrics: {
+            /**
+             * Producttopn
+             * @description Product rank cutoff: 3, 5, 10, or 20; topNSkuCount gives the actual number selected.
+             */
+            productTopN: number;
+            /**
+             * Topnskucount
+             * @description Actual number of selected Top N products.
+             */
+            topNSkuCount?: number | null;
+            /**
+             * Avgbsr
+             * @description Average current main-category BSR of the Top N products.
+             */
+            avgBsr?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per Top N product.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per product, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Monthlysales
+             * @description Combined estimated monthly unit sales of the Top N products.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Combined estimated monthly revenue of the Top N products, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Monthlysalesrate
+             * @description Top N products' share of sample monthly unit sales, ranked by unit sales.
+             */
+            monthlySalesRate?: number | null;
+            /**
+             * Monthlyrevenuerate
+             * @description Share of sample monthly revenue held by the same unit-sales-ranked Top N products.
+             */
+            monthlyRevenueRate?: number | null;
+        };
+        /**
+         * MarketRow
+         * @description Current market measures grouped by full-category and selected-sample scope.
+         */
+        MarketRow: {
+            /**
+             * Date
+             * Format: date
+             * @description Actual published market snapshot date (YYYY-MM-DD).
+             */
+            date: string;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code; currently US.
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Categoryid
+             * @description Amazon category node ID defining this market.
+             */
+            categoryId: string;
+            /**
+             * Categoryname
+             * @description Name of the market's category node.
+             */
+            categoryName?: string | null;
             /**
              * Categorypath
-             * @description Category hierarchy from root. Example: ['Electronics', 'Computers', 'Laptops'].
+             * @description Category names from the root to this node.
              */
             categoryPath?: string[];
             /**
-             * Categorylevel
-             * @description Category depth level (1 = root). Example: 3.
+             * Includedescendantcategoryproducts
+             * @description Whether market metrics include products from descendant categories, with products deduplicated.
              */
-            categoryLevel: number;
+            includeDescendantCategoryProducts: boolean;
             /**
-             * Totalskucount
-             * @description Total active SKUs in this category. Example: 15000.
+             * Sampletype
+             * @description Top 100 selection method: unitSalesTop100 ranks by estimated monthly units sold; revenueTop100 ranks by estimated monthly revenue.
+             * @enum {string}
              */
-            totalSkuCount: number;
+            sampleType: "unitSalesTop100" | "revenueTop100";
+            /**
+             * Currency
+             * @description Currency for monetary metrics, currently USD.
+             */
+            currency?: string | null;
+            /** @description Measures for all products in the category scope. */
+            marketTotal: components["schemas"]["MarketTotalMetrics"];
+            /** @description Measures for the selected Top 100 products. */
+            marketSample: components["schemas"]["MarketSampleMetrics"];
+        };
+        /**
+         * MarketSampleMetrics
+         * @description Current measures for the selected Top 100 sample.
+         */
+        MarketSampleMetrics: {
+            /**
+             * Skucount
+             * @description Actual number of selected products; can be below 100.
+             */
+            skuCount?: number | null;
+            /**
+             * Monthlysales
+             * @description Estimated monthly unit sales of selected products.
+             */
+            monthlySales?: number | null;
+            /**
+             * Monthlyrevenue
+             * @description Estimated monthly revenue of selected products, in USD.
+             */
+            monthlyRevenue?: number | null;
+            /**
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per selected product.
+             */
+            avgMonthlySales?: number | null;
+            /**
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per selected product, in USD.
+             */
+            avgMonthlyRevenue?: number | null;
+            /**
+             * Avgprice
+             * @description Average price per selected product, in USD.
+             */
+            avgPrice?: number | null;
+            /**
+             * Avggrossmarginrate
+             * @description Average gross margin rate among selected products, from 0 to 1.
+             */
+            avgGrossMarginRate?: number | null;
+            /**
+             * Avgbsr
+             * @description Average 30-day main-category BSR of selected products.
+             */
+            avgBsr?: number | null;
+            /**
+             * Avgpackageweight
+             * @description Average selected-product package weight, in ounces.
+             */
+            avgPackageWeight?: number | null;
+            /**
+             * Avgpackagevolume
+             * @description Average selected-product package volume, in cubic inches.
+             */
+            avgPackageVolume?: number | null;
+            /**
+             * Salescoveragerate
+             * @description Selected-product monthly sales divided by full-category monthly sales, when comparable.
+             */
+            salesCoverageRate?: number | null;
+            /**
+             * Revenuecoveragerate
+             * @description Selected-product monthly revenue divided by full-category monthly revenue, when comparable.
+             */
+            revenueCoverageRate?: number | null;
+            /**
+             * Medianprice
+             * @description Median 30-day price of selected products, in USD.
+             */
+            medianPrice?: number | null;
+            /**
+             * Brandcount
+             * @description Distinct brands among selected products.
+             */
+            brandCount?: number | null;
+            /**
+             * Sellercount
+             * @description Distinct primary sellers among selected products.
+             */
+            sellerCount?: number | null;
+            /**
+             * Avgrating
+             * @description Average star rating among selected products.
+             */
+            avgRating?: number | null;
+            /**
+             * Avgratingcount
+             * @description Average rating count per selected product.
+             */
+            avgRatingCount?: number | null;
+            /**
+             * Avgsellercount
+             * @description Average seller count per selected product.
+             */
+            avgSellerCount?: number | null;
+            /**
+             * Avgmonthlynewratingcount
+             * @description Average new ratings per month for selected products.
+             */
+            avgMonthlyNewRatingCount?: number | null;
+            /**
+             * Fbmrate
+             * @description Share of selected products fulfilled by the merchant, from 0 to 1.
+             */
+            fbmRate?: number | null;
+            /**
+             * Fbarate
+             * @description Share of selected products fulfilled by Amazon, from 0 to 1.
+             */
+            fbaRate?: number | null;
+            /**
+             * Amazonselfoperatedrate
+             * @description Share of selected products sold by Amazon, from 0 to 1.
+             */
+            amazonSelfOperatedRate?: number | null;
+            /**
+             * Sellercountries
+             * @description Seller-country codes observed in the selected sample.
+             */
+            sellerCountries?: string[] | null;
+            /**
+             * Leadingsellercountry
+             * @description Country with the most distinct seller IDs in the selected product sample. Each seller is counted once across products; Amazon-operated sellers are included.
+             */
+            leadingSellerCountry?: string | null;
+            /**
+             * Leadingsellercountryrate
+             * @description Distinct seller IDs in leadingSellerCountry divided by all distinct seller IDs in the selected product sample, from 0 to 1. Uses the same seller population as sellerCount, including Amazon-operated sellers.
+             */
+            leadingSellerCountryRate?: number | null;
+            /**
+             * Aplusrate
+             * @description Share of selected products with A+ content, from 0 to 1.
+             */
+            aPlusRate?: number | null;
+            /**
+             * Videorate
+             * @description Share of selected products with video, from 0 to 1.
+             */
+            videoRate?: number | null;
+            /**
+             * Newproductmetrics
+             * @description New-product measures for 1, 3, 6, and 12 calendar months. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
+             */
+            newProductMetrics?: components["schemas"]["MarketSampleNewProductMetrics"][];
+            /**
+             * Producttopnmetrics
+             * @description Top 3, 5, 10, and 20 products: actual SKU counts, averages, totals, and sample shares.
+             */
+            productTopNMetrics?: components["schemas"]["MarketProductTopNMetrics"][];
+            /**
+             * Brandtopnmetrics
+             * @description Top 3, 5, 10, and 20 brands ranked by monthly unit sales: actual brand counts, averages, totals, and sample shares for the same brands.
+             */
+            brandTopNMetrics?: components["schemas"]["MarketBrandTopNMetrics"][];
+        };
+        /**
+         * MarketSampleNewProductMetrics
+         * @description Additional price and rating measures available for selected sample products.
+         */
+        MarketSampleNewProductMetrics: {
+            /**
+             * Periodmonths
+             * @description New-product window in calendar months: 1, 3, 6, or 12.
+             */
+            periodMonths: number;
+            /**
+             * Newskucount
+             * @description Number of SKUs classified as new for this calendar-month window.
+             */
+            newSkuCount?: number | null;
+            /**
+             * Newskurate
+             * @description New-SKU count divided by all SKUs in the enclosing marketSample or distribution bucket, from 0 to 1.
+             */
+            newSkuRate?: number | null;
+            /**
+             * Newskumonthlysales
+             * @description Combined estimated monthly unit sales of new SKUs.
+             */
+            newSkuMonthlySales?: number | null;
+            /**
+             * Newskumonthlyrevenue
+             * @description Combined estimated monthly revenue of new SKUs, in USD.
+             */
+            newSkuMonthlyRevenue?: number | null;
+            /**
+             * Newskuavgmonthlysales
+             * @description Average estimated monthly unit sales per new SKU.
+             */
+            newSkuAvgMonthlySales?: number | null;
+            /**
+             * Newskuavgmonthlyrevenue
+             * @description Average estimated monthly revenue per new SKU, in USD.
+             */
+            newSkuAvgMonthlyRevenue?: number | null;
+            /**
+             * Newskumonthlysalesrate
+             * @description New-SKU monthly unit sales divided by all monthly unit sales in marketSample, from 0 to 1.
+             */
+            newSkuMonthlySalesRate?: number | null;
+            /**
+             * Newskumonthlyrevenuerate
+             * @description New-SKU monthly revenue divided by all monthly revenue in marketSample, from 0 to 1.
+             */
+            newSkuMonthlyRevenueRate?: number | null;
+            /**
+             * Newskuavgprice
+             * @description Average 30-day price of new SKUs, in USD.
+             */
+            newSkuAvgPrice?: number | null;
+            /**
+             * Newskuavgrating
+             * @description Average star rating of new SKUs.
+             */
+            newSkuAvgRating?: number | null;
+            /**
+             * Newskuavgratingcount
+             * @description Average rating count of new SKUs.
+             */
+            newSkuAvgRatingCount?: number | null;
+        };
+        /** MarketSearchCategory */
+        MarketSearchCategory: {
+            /**
+             * Ids
+             * @description Return one market row per Amazon category ID.
+             */
+            ids?: string[] | null;
+            /**
+             * Path
+             * @description Full path from root; resolve its last node to one category ID before searching.
+             */
+            path?: string[] | null;
+            /**
+             * Name
+             * @description Exact category-node name; matching names may return multiple markets with different category IDs.
+             */
+            name?: string | null;
+            /**
+             * Includedescendantcategoryproducts
+             * @description Include descendant-category products in each returned market's metrics and Top 100 sample; defaults to true.
+             * @default true
+             */
+            includeDescendantCategoryProducts: boolean;
+        };
+        /** MarketSearchFilters */
+        MarketSearchFilters: {
+            /**
+             * Sampleavgmonthlysalesmin
+             * @description Minimum estimated monthly unit sales per product in the selected Top 100 sample.
+             */
+            sampleAvgMonthlySalesMin?: number | null;
+            /**
+             * Sampleavgmonthlysalesmax
+             * @description Maximum estimated monthly unit sales per product in the selected Top 100 sample.
+             */
+            sampleAvgMonthlySalesMax?: number | null;
+            /**
+             * Sampleavgmonthlyrevenuemin
+             * @description Minimum estimated monthly revenue per product in the selected Top 100 sample, in USD.
+             */
+            sampleAvgMonthlyRevenueMin?: number | null;
+            /**
+             * Sampleavgmonthlyrevenuemax
+             * @description Maximum estimated monthly revenue per product in the selected Top 100 sample, in USD.
+             */
+            sampleAvgMonthlyRevenueMax?: number | null;
+            /**
+             * Sampleavgpricemin
+             * @description Minimum sample average price. Example: 10.00.
+             */
+            sampleAvgPriceMin?: number | null;
+            /**
+             * Sampleavgpricemax
+             * @description Maximum sample average price.
+             */
+            sampleAvgPriceMax?: number | null;
+            /**
+             * Sampleavgbsrmin
+             * @description Minimum sample average main-category BSR (lower = better).
+             */
+            sampleAvgBsrMin?: number | null;
+            /**
+             * Sampleavgbsrmax
+             * @description Maximum sample average main-category BSR.
+             */
+            sampleAvgBsrMax?: number | null;
+            /**
+             * Sampleavgratingmin
+             * @description Minimum sample average star rating (0.0–5.0).
+             */
+            sampleAvgRatingMin?: number | null;
+            /**
+             * Sampleavgratingmax
+             * @description Maximum sample average star rating (0.0–5.0).
+             */
+            sampleAvgRatingMax?: number | null;
+            /**
+             * Sampleavgratingcountmin
+             * @description Minimum sample average rating count per product.
+             */
+            sampleAvgRatingCountMin?: number | null;
+            /**
+             * Sampleavgratingcountmax
+             * @description Maximum sample average rating count per product.
+             */
+            sampleAvgRatingCountMax?: number | null;
+            /**
+             * Totalskucountmin
+             * @description Minimum total SKU count in category.
+             */
+            totalSkuCountMin?: number | null;
+            /**
+             * Totalskucountmax
+             * @description Maximum total SKU count in category.
+             */
+            totalSkuCountMax?: number | null;
+            /**
+             * Sampleskucountmin
+             * @description Minimum sample SKU count.
+             */
+            sampleSkuCountMin?: number | null;
+            /**
+             * Sampleskucountmax
+             * @description Maximum sample SKU count.
+             */
+            sampleSkuCountMax?: number | null;
+            /**
+             * Samplebrandcountmin
+             * @description Minimum sample unique brand count.
+             */
+            sampleBrandCountMin?: number | null;
+            /**
+             * Samplebrandcountmax
+             * @description Maximum sample unique brand count.
+             */
+            sampleBrandCountMax?: number | null;
+            /**
+             * Samplesellercountmin
+             * @description Minimum sample unique seller count.
+             */
+            sampleSellerCountMin?: number | null;
+            /**
+             * Samplesellercountmax
+             * @description Maximum sample unique seller count.
+             */
+            sampleSellerCountMax?: number | null;
+            /**
+             * Samplefbaratemin
+             * @description Minimum sample FBA product rate as decimal.
+             */
+            sampleFbaRateMin?: number | null;
+            /**
+             * Samplefbaratemax
+             * @description Maximum sample FBA product rate as decimal.
+             */
+            sampleFbaRateMax?: number | null;
+            /**
+             * Sampleamzratemin
+             * @description Minimum sample Amazon-sold product rate as decimal.
+             */
+            sampleAmzRateMin?: number | null;
+            /**
+             * Sampleamzratemax
+             * @description Maximum sample Amazon-sold product rate as decimal.
+             */
+            sampleAmzRateMax?: number | null;
+            /**
+             * Samplenewskucountmin
+             * @description Minimum sample new product count.
+             */
+            sampleNewSkuCountMin?: number | null;
+            /**
+             * Samplenewskucountmax
+             * @description Maximum sample new product count.
+             */
+            sampleNewSkuCountMax?: number | null;
+            /**
+             * Samplenewskuratemin
+             * @description Minimum sample new product rate as decimal.
+             */
+            sampleNewSkuRateMin?: number | null;
+            /**
+             * Samplenewskuratemax
+             * @description Maximum sample new product rate as decimal.
+             */
+            sampleNewSkuRateMax?: number | null;
+            /**
+             * Samplenewskuavgmonthlysalesmin
+             * @description Minimum new product average monthly sales.
+             */
+            sampleNewSkuAvgMonthlySalesMin?: number | null;
+            /**
+             * Samplenewskuavgmonthlysalesmax
+             * @description Maximum new product average monthly sales.
+             */
+            sampleNewSkuAvgMonthlySalesMax?: number | null;
+            /**
+             * Samplenewskuavgpricemin
+             * @description Minimum new product average price.
+             */
+            sampleNewSkuAvgPriceMin?: number | null;
+            /**
+             * Samplenewskuavgpricemax
+             * @description Maximum new product average price.
+             */
+            sampleNewSkuAvgPriceMax?: number | null;
+            /**
+             * Sampleavgpackageweightmin
+             * @description Minimum sample average package weight in oz.
+             */
+            sampleAvgPackageWeightMin?: number | null;
+            /**
+             * Sampleavgpackageweightmax
+             * @description Maximum sample average package weight in oz.
+             */
+            sampleAvgPackageWeightMax?: number | null;
+            /**
+             * Sampleavgpackagevolumemin
+             * @description Minimum sample average package volume in in³.
+             */
+            sampleAvgPackageVolumeMin?: number | null;
+            /**
+             * Sampleavgpackagevolumemax
+             * @description Maximum sample average package volume in in³.
+             */
+            sampleAvgPackageVolumeMax?: number | null;
+            /**
+             * Sellercountry
+             * @description Require this seller country code in the Top 100 sample's seller-location list, e.g. US.
+             */
+            sellerCountry?: string | null;
+            /**
+             * Totalmonthlysalesmin
+             * @description Minimum estimated monthly unit sales across all products in the category scope.
+             */
+            totalMonthlySalesMin?: number | null;
+            /**
+             * Totalmonthlyrevenuemin
+             * @description Minimum estimated monthly revenue across all products in the category scope, in USD.
+             */
+            totalMonthlyRevenueMin?: number | null;
+            /**
+             * Sampleavggrossmarginratemin
+             * @description Minimum sample average gross margin rate, from 0 to 1.
+             */
+            sampleAvgGrossMarginRateMin?: number | null;
+            /**
+             * Sampleavggrossmarginratemax
+             * @description Maximum sample average gross margin rate, from 0 to 1.
+             */
+            sampleAvgGrossMarginRateMax?: number | null;
+            /**
+             * Samplenewskuavgmonthlyrevenuemin
+             * @description Minimum average monthly revenue in USD for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgMonthlyRevenueMin?: number | null;
+            /**
+             * Samplenewskuavgmonthlyrevenuemax
+             * @description Maximum average monthly revenue in USD for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgMonthlyRevenueMax?: number | null;
+            /**
+             * Samplenewskuavgratingmin
+             * @description Minimum average star rating for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgRatingMin?: number | null;
+            /**
+             * Samplenewskuavgratingmax
+             * @description Maximum average star rating for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgRatingMax?: number | null;
+            /**
+             * Samplenewskuavgratingcountmin
+             * @description Minimum average rating count for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgRatingCountMin?: number | null;
+            /**
+             * Samplenewskuavgratingcountmax
+             * @description Maximum average rating count for new products defined by newProductPeriod.
+             */
+            sampleNewSkuAvgRatingCountMax?: number | null;
+            /**
+             * Topnproductmonthlysalesratemin
+             * @description Minimum share of sample monthly unit sales contributed by the Top N products selected by topN.
+             */
+            topNProductMonthlySalesRateMin?: number | null;
+            /**
+             * Topnproductmonthlysalesratemax
+             * @description Maximum share of sample monthly unit sales contributed by the Top N products selected by topN.
+             */
+            topNProductMonthlySalesRateMax?: number | null;
+            /**
+             * Topnproductmonthlyrevenueratemin
+             * @description Minimum share of sample monthly revenue contributed by the Top N products selected by topN.
+             */
+            topNProductMonthlyRevenueRateMin?: number | null;
+            /**
+             * Topnproductmonthlyrevenueratemax
+             * @description Maximum share of sample monthly revenue contributed by the Top N products selected by topN.
+             */
+            topNProductMonthlyRevenueRateMax?: number | null;
+            /**
+             * Topnbrandmonthlysalesratemin
+             * @description Minimum share of sample monthly unit sales contributed by the Top N brands selected by topN.
+             */
+            topNBrandMonthlySalesRateMin?: number | null;
+            /**
+             * Topnbrandmonthlysalesratemax
+             * @description Maximum share of sample monthly unit sales contributed by the Top N brands selected by topN.
+             */
+            topNBrandMonthlySalesRateMax?: number | null;
+            /**
+             * Topnbrandmonthlyrevenueratemin
+             * @description Minimum share of sample monthly revenue contributed by the Top N brands selected by topN.
+             */
+            topNBrandMonthlyRevenueRateMin?: number | null;
+            /**
+             * Topnbrandmonthlyrevenueratemax
+             * @description Maximum share of sample monthly revenue contributed by the Top N brands selected by topN.
+             */
+            topNBrandMonthlyRevenueRateMax?: number | null;
+            /**
+             * Sampleavgsellercountmin
+             * @description Minimum average seller count per product in the selected Top 100.
+             */
+            sampleAvgSellerCountMin?: number | null;
+            /**
+             * Sampleavgsellercountmax
+             * @description Maximum average seller count per product in the selected Top 100.
+             */
+            sampleAvgSellerCountMax?: number | null;
+            /**
+             * Samplefbmratemin
+             * @description Minimum share of Top 100 products fulfilled by the merchant, as a decimal from 0 to 1.
+             */
+            sampleFbmRateMin?: number | null;
+            /**
+             * Samplefbmratemax
+             * @description Maximum share of Top 100 products fulfilled by the merchant, as a decimal from 0 to 1.
+             */
+            sampleFbmRateMax?: number | null;
+            /**
+             * Sampleaplusratemin
+             * @description Minimum share of Top 100 products with A+ content, as a decimal from 0 to 1.
+             */
+            sampleAPlusRateMin?: number | null;
+            /**
+             * Sampleaplusratemax
+             * @description Maximum share of Top 100 products with A+ content, as a decimal from 0 to 1.
+             */
+            sampleAPlusRateMax?: number | null;
+        };
+        /** MarketStructure */
+        MarketStructure: {
+            /**
+             * Date
+             * Format: date
+             * @description Actual published market snapshot date (YYYY-MM-DD).
+             */
+            date: string;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code; currently US.
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Categoryid
+             * @description Amazon category node ID defining this market.
+             */
+            categoryId: string;
+            /**
+             * Includedescendantcategoryproducts
+             * @description Whether market metrics include products from descendant categories, with products deduplicated.
+             */
+            includeDescendantCategoryProducts: boolean;
+            /**
+             * Sampletype
+             * @description Top 100 selection method: unitSalesTop100 ranks by estimated monthly units sold; revenueTop100 ranks by estimated monthly revenue.
+             * @enum {string}
+             */
+            sampleType: "unitSalesTop100" | "revenueTop100";
             /**
              * Sampleskucount
-             * @description Number of products in sample. Example: 100. Null if unavailable.
+             * @description Actual selected Top 100 product count and denominator of buckets[].skuRate.
              */
-            sampleSkuCount?: number | null;
+            sampleSkuCount: number;
             /**
-             * Sampleavgprice
-             * @description Average price within sample. Example: 29.99. Null if unavailable.
+             * Currency
+             * @description Currency for monetary metrics, currently USD.
              */
-            sampleAvgPrice?: number | null;
+            currency?: string | null;
             /**
-             * Sampleavgmonthlysales
-             * @description Average monthly sales within sample. Units sold. Example: 350.0. Null if unavailable.
+             * Dimension
+             * @description Requested Top 100 distribution dimension.
+             * @enum {string}
              */
-            sampleAvgMonthlySales?: number | null;
+            dimension: "brand" | "seller" | "price" | "sellerCountry" | "fulfillment" | "ratingCount" | "rating" | "listingAge" | "listingYear" | "productFeature";
             /**
-             * Sampleavgmonthlyrevenue
-             * @description Average monthly revenue within sample. Null if unavailable.
+             * Buckets
+             * @description Complete groups for the requested dimension, including other/unclassified when needed.
              */
-            sampleAvgMonthlyRevenue?: number | null;
+            buckets: components["schemas"]["MarketDistributionRow"][];
+        };
+        /** MarketStructureRequest */
+        MarketStructureRequest: {
             /**
-             * Sampletotalmonthlysales
-             * @description Total monthly sales across sample. Units sold. Null if unavailable.
+             * Marketplace
+             * @description Amazon marketplace; currently US only.
+             * @default US
+             * @constant
              */
-            sampleTotalMonthlySales?: number | null;
+            marketplace: "US";
             /**
-             * Sampleavgbsr
-             * @description Average main-category BSR across sample (lower = better). Null if unavailable.
+             * Categoryid
+             * @description Amazon category node ID to analyze.
              */
-            sampleAvgBsr?: number | null;
+            categoryId: string;
             /**
-             * Sampleavgrating
-             * @description Average star rating within sample (0.0–5.0). Null if unavailable.
+             * Includedescendantcategoryproducts
+             * @description Whether market metrics include products assigned to descendant category nodes; defaults to true.
+             * @default true
              */
-            sampleAvgRating?: number | null;
+            includeDescendantCategoryProducts: boolean;
             /**
-             * Sampleavgratingcount
-             * @description Average ratings per product within sample. Null if unavailable.
+             * Sampletype
+             * @description How to select the Top 100 products within the category scope: by estimated monthly unit sales or by estimated monthly revenue.
+             * @default unitSalesTop100
+             * @enum {string}
              */
-            sampleAvgRatingCount?: number | null;
+            sampleType: "unitSalesTop100" | "revenueTop100";
             /**
-             * Samplebrandcount
-             * @description Unique brand count within sample. Null if unavailable.
+             * Date
+             * @description Market lookup date (YYYY-MM-DD); defaults to the latest published snapshot. The response date shows the actual snapshot date.
              */
-            sampleBrandCount?: number | null;
+            date?: string | null;
             /**
-             * Samplesellercount
-             * @description Unique seller count within sample. Null if unavailable.
+             * Dimension
+             * @description One distribution to return: brand, seller, price, sellerCountry, fulfillment, ratingCount, rating, listingAge, listingYear, or productFeature.
+             * @enum {string}
              */
-            sampleSellerCount?: number | null;
+            dimension: "brand" | "seller" | "price" | "sellerCountry" | "fulfillment" | "ratingCount" | "rating" | "listingAge" | "listingYear" | "productFeature";
+        };
+        /**
+         * MarketTotalMetrics
+         * @description Current measures for the full category scope.
+         */
+        MarketTotalMetrics: {
             /**
-             * Sampleavgsellercount
-             * @description Average sellers per product in sample. Null if unavailable.
+             * Skucount
+             * @description Number of products in the full category scope.
              */
-            sampleAvgSellerCount?: number | null;
+            skuCount?: number | null;
             /**
-             * Samplefbarate
-             * @description FBA product rate as decimal (0.80 = 80% FBA). Null if unavailable.
+             * Spucount
+             * @description Number of parent-product groups in the full category scope.
              */
-            sampleFbaRate?: number | null;
+            spuCount?: number | null;
             /**
-             * Samplefbmrate
-             * @description FBM product rate as decimal (0.20 = 20% FBM). Null if unavailable.
+             * Monthlysales
+             * @description Estimated monthly unit sales across the full category scope.
              */
-            sampleFbmRate?: number | null;
+            monthlySales?: number | null;
             /**
-             * Sampleamzrate
-             * @description Amazon-sold product rate as decimal (0.10 = 10%). Null if unavailable.
+             * Monthlyrevenue
+             * @description Estimated monthly revenue across the full category scope, in USD.
              */
-            sampleAmzRate?: number | null;
+            monthlyRevenue?: number | null;
             /**
-             * Samplenewskucount
-             * @description New products in sample (within newProductPeriod). Null if unavailable.
+             * Avgmonthlysales
+             * @description Average estimated monthly unit sales per product in the full category scope.
              */
-            sampleNewSkuCount?: number | null;
+            avgMonthlySales?: number | null;
             /**
-             * Samplenewskurate
-             * @description New product share in sample as decimal (0.15 = 15%). Null if unavailable.
+             * Avgmonthlyrevenue
+             * @description Average estimated monthly revenue per product in the full category scope, in USD.
              */
-            sampleNewSkuRate?: number | null;
+            avgMonthlyRevenue?: number | null;
             /**
-             * Samplenewskuavgprice
-             * @description Average price of new products. Null if unavailable.
+             * Newproductmetrics
+             * @description New-product counts and rates for 1, 3, 6, and 12 calendar months. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
              */
-            sampleNewSkuAvgPrice?: number | null;
+            newProductMetrics?: components["schemas"]["MarketTotalNewProductMetrics"][];
+        };
+        /**
+         * MarketTotalNewProductMetrics
+         * @description New-product market size for one calendar-month window.
+         */
+        MarketTotalNewProductMetrics: {
             /**
-             * Samplenewskuavgratingcount
-             * @description Average rating count of new products. Null if unavailable.
+             * Periodmonths
+             * @description New-product window in calendar months: 1, 3, 6, or 12.
              */
-            sampleNewSkuAvgRatingCount?: number | null;
+            periodMonths: number;
             /**
-             * Samplenewskuavgrating
-             * @description Average star rating of new products (0.0–5.0). Null if unavailable.
+             * Newskucount
+             * @description Number of new SKUs in the full category scope.
              */
-            sampleNewSkuAvgRating?: number | null;
+            newSkuCount?: number | null;
             /**
-             * Samplenewskuavgmonthlysales
-             * @description Average monthly sales of new products. Null if unavailable.
+             * Newskurate
+             * @description New-SKU count divided by all SKUs in the full category scope, from 0 to 1.
              */
-            sampleNewSkuAvgMonthlySales?: number | null;
+            newSkuRate?: number | null;
             /**
-             * Samplenewskuavgmonthlyrevenue
-             * @description Average monthly revenue of new products. Null if unavailable.
+             * Newskumonthlysales
+             * @description Estimated monthly unit sales of new SKUs.
              */
-            sampleNewSkuAvgMonthlyRevenue?: number | null;
+            newSkuMonthlySales?: number | null;
             /**
-             * Sampleaplusrate
-             * @description A+ content product rate as decimal (0.30 = 30%). Null if unavailable.
+             * Newskumonthlyrevenue
+             * @description Estimated monthly revenue of new SKUs, in USD.
              */
-            sampleAPlusRate?: number | null;
-            /**
-             * Sampleavgpackageweight
-             * @description Average package weight across sample. Null if unavailable.
-             */
-            sampleAvgPackageWeight?: number | null;
-            /**
-             * Sampleavgpackageweightunit
-             * @description Unit for sampleAvgPackageWeight (e.g. 'oz').
-             */
-            sampleAvgPackageWeightUnit?: "oz" | null;
-            /**
-             * Sampleavgpackagevolume
-             * @description Average package volume across sample. Null if unavailable.
-             */
-            sampleAvgPackageVolume?: number | null;
-            /**
-             * Sampleavgpackagevolumeunit
-             * @description Unit for sampleAvgPackageVolume (e.g. 'in³').
-             */
-            sampleAvgPackageVolumeUnit?: "in³" | null;
-            /**
-             * Topavgmonthlysales
-             * @description Average monthly sales among Top N products. Null if unavailable.
-             */
-            topAvgMonthlySales?: number | null;
-            /**
-             * Topavgmonthlyrevenue
-             * @description Average monthly revenue among Top N products. Null if unavailable.
-             */
-            topAvgMonthlyRevenue?: number | null;
-            /**
-             * Topavgbsr
-             * @description Average main-category BSR among Top N products (lower = better). Null if unavailable.
-             */
-            topAvgBsr?: number | null;
-            /**
-             * Topavgsubbsr
-             * @description Average sub-category BSR among Top N products. Null if unavailable.
-             */
-            topAvgSubBsr?: number | null;
-            /**
-             * Topsalesrate
-             * @description Top N share of total sample sales as decimal. Null if unavailable.
-             */
-            topSalesRate?: number | null;
-            /**
-             * Toprevenuerate
-             * @description Top N share of total sample revenue as decimal. Null if unavailable.
-             */
-            topRevenueRate?: number | null;
-            /**
-             * Topbrandsalesrate
-             * @description Top N brands' combined sales share as decimal (concentration ratio). Null if unavailable.
-             */
-            topBrandSalesRate?: number | null;
-            /**
-             * Topsellersalesrate
-             * @description Top N sellers' combined sales share as decimal (concentration ratio). Null if unavailable.
-             */
-            topSellerSalesRate?: number | null;
-            /**
-             * Sampleselleraddresses
-             * @description Seller locations found in sample. Null if unavailable.
-             */
-            sampleSellerAddresses?: string[] | null;
+            newSkuMonthlyRevenue?: number | null;
         };
         /**
          * MediaUrl
@@ -4093,6 +7246,21 @@ export interface components {
             url: string;
         } & {
             [key: string]: unknown;
+        };
+        /** OpenApiResponse[AmazonRealtimeBestsellers] */
+        OpenApiResponse_AmazonRealtimeBestsellers_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["AmazonRealtimeBestsellers"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
         };
         /** OpenApiResponse[AmazonRealtimeProduct] */
         OpenApiResponse_AmazonRealtimeProduct_: {
@@ -4119,6 +7287,21 @@ export interface components {
             success: boolean;
             /** @description Response data payload */
             data?: components["schemas"]["AmazonRealtimeReviews"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[AsinKeywordsData] */
+        OpenApiResponse_AsinKeywordsData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["AsinKeywordsData"] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
@@ -4334,6 +7517,126 @@ export interface components {
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
+        /** OpenApiResponse[KeywordDetailData] */
+        OpenApiResponse_KeywordDetailData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordDetailData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[KeywordExtendsData] */
+        OpenApiResponse_KeywordExtendsData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordExtendsData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[KeywordMarketProfileData] */
+        OpenApiResponse_KeywordMarketProfileData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordMarketProfileData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[KeywordSearchResultsData] */
+        OpenApiResponse_KeywordSearchResultsData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordSearchResultsData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[KeywordTrendData] */
+        OpenApiResponse_KeywordTrendData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordTrendData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[KeywordTrendProfileData] */
+        OpenApiResponse_KeywordTrendProfileData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["KeywordTrendProfileData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[MarketHistory] */
+        OpenApiResponse_MarketHistory_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["MarketHistory"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[MarketStructure] */
+        OpenApiResponse_MarketStructure_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["MarketStructure"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
         /** OpenApiResponse[ProductHistoryTimeSeriesItem] */
         OpenApiResponse_ProductHistoryTimeSeriesItem_: {
             /**
@@ -4344,6 +7647,81 @@ export interface components {
             success: boolean;
             /** @description Response data payload */
             data?: components["schemas"]["ProductHistoryTimeSeriesItem"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[ProductSalesTrend] */
+        OpenApiResponse_ProductSalesTrend_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["ProductSalesTrend"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[ProductTrafficTermsProfileData] */
+        OpenApiResponse_ProductTrafficTermsProfileData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["ProductTrafficTermsProfileData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[ProductTrafficTermsTimelineData] */
+        OpenApiResponse_ProductTrafficTermsTimelineData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["ProductTrafficTermsTimelineData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[ProductTrafficTrendData] */
+        OpenApiResponse_ProductTrafficTrendData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["ProductTrafficTrendData"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[ProductTrafficTrendProfileData] */
+        OpenApiResponse_ProductTrafficTrendProfileData_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["ProductTrafficTrendProfileData"] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
@@ -4379,8 +7757,8 @@ export interface components {
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
-        /** OpenApiResponse[Union[KeywordDetailItem, NoneType]] */
-        OpenApiResponse_Union_KeywordDetailItem__NoneType__: {
+        /** OpenApiResponse[TikTokRealtimeVideo] */
+        OpenApiResponse_TikTokRealtimeVideo_: {
             /**
              * Success
              * @description Whether the request was successful
@@ -4388,14 +7766,14 @@ export interface components {
              */
             success: boolean;
             /** @description Response data payload */
-            data?: components["schemas"]["KeywordDetailItem"] | null;
+            data?: components["schemas"]["TikTokRealtimeVideo"] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
-        /** OpenApiResponse[Union[UsdAccountBalance, CreditAccountBalance]] */
-        OpenApiResponse_Union_UsdAccountBalance__CreditAccountBalance__: {
+        /** OpenApiResponse[Union[ProductDetailBatch, ProductDetailParentPage]] */
+        OpenApiResponse_Union_ProductDetailBatch__ProductDetailParentPage__: {
             /**
              * Success
              * @description Whether the request was successful
@@ -4406,7 +7784,25 @@ export interface components {
              * Data
              * @description Response data payload
              */
-            data?: components["schemas"]["UsdAccountBalance"] | components["schemas"]["CreditAccountBalance"] | null;
+            data?: components["schemas"]["ProductDetailBatch"] | components["schemas"]["ProductDetailParentPage"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[Union[UsdAccountBalance, CreditAccountBalanceWithUsd, CreditAccountBalance]] */
+        OpenApiResponse_Union_UsdAccountBalance__CreditAccountBalanceWithUsd__CreditAccountBalance__: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /**
+             * Data
+             * @description Response data payload
+             */
+            data?: components["schemas"]["UsdAccountBalance"] | components["schemas"]["CreditAccountBalanceWithUsd"] | components["schemas"]["CreditAccountBalance"] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
@@ -4442,19 +7838,46 @@ export interface components {
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
-        /** OpenApiResponse[list[AsinKeywordItem]] */
-        OpenApiResponse_list_AsinKeywordItem__: {
+        /** OpenApiResponse[VocTrend] */
+        OpenApiResponse_VocTrend_: {
             /**
              * Success
              * @description Whether the request was successful
              * @default true
              */
             success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["VocTrend"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[WatchlistListDTO] */
+        OpenApiResponse_WatchlistListDTO_: {
             /**
-             * Data
-             * @description Response data payload
+             * Success
+             * @description Whether the request was successful
+             * @default true
              */
-            data?: components["schemas"]["AsinKeywordItem"][] | null;
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["WatchlistListDTO"] | null;
+            /** @description Error details if request failed */
+            error?: components["schemas"]["ErrorDetail"] | null;
+            /** @description Response metadata including pagination info */
+            meta: components["schemas"]["ResponseMeta"];
+        };
+        /** OpenApiResponse[WatchlistMutationDTO] */
+        OpenApiResponse_WatchlistMutationDTO_: {
+            /**
+             * Success
+             * @description Whether the request was successful
+             * @default true
+             */
+            success: boolean;
+            /** @description Response data payload */
+            data?: components["schemas"]["WatchlistMutationDTO"] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
@@ -4496,8 +7919,8 @@ export interface components {
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
-        /** OpenApiResponse[list[KeywordExtendItem]] */
-        OpenApiResponse_list_KeywordExtendItem__: {
+        /** OpenApiResponse[list[MarketRow]] */
+        OpenApiResponse_list_MarketRow__: {
             /**
              * Success
              * @description Whether the request was successful
@@ -4508,61 +7931,7 @@ export interface components {
              * Data
              * @description Response data payload
              */
-            data?: components["schemas"]["KeywordExtendItem"][] | null;
-            /** @description Error details if request failed */
-            error?: components["schemas"]["ErrorDetail"] | null;
-            /** @description Response metadata including pagination info */
-            meta: components["schemas"]["ResponseMeta"];
-        };
-        /** OpenApiResponse[list[KeywordSearchResultItem]] */
-        OpenApiResponse_list_KeywordSearchResultItem__: {
-            /**
-             * Success
-             * @description Whether the request was successful
-             * @default true
-             */
-            success: boolean;
-            /**
-             * Data
-             * @description Response data payload
-             */
-            data?: components["schemas"]["KeywordSearchResultItem"][] | null;
-            /** @description Error details if request failed */
-            error?: components["schemas"]["ErrorDetail"] | null;
-            /** @description Response metadata including pagination info */
-            meta: components["schemas"]["ResponseMeta"];
-        };
-        /** OpenApiResponse[list[KeywordTrendItem]] */
-        OpenApiResponse_list_KeywordTrendItem__: {
-            /**
-             * Success
-             * @description Whether the request was successful
-             * @default true
-             */
-            success: boolean;
-            /**
-             * Data
-             * @description Response data payload
-             */
-            data?: components["schemas"]["KeywordTrendItem"][] | null;
-            /** @description Error details if request failed */
-            error?: components["schemas"]["ErrorDetail"] | null;
-            /** @description Response metadata including pagination info */
-            meta: components["schemas"]["ResponseMeta"];
-        };
-        /** OpenApiResponse[list[Market]] */
-        OpenApiResponse_list_Market__: {
-            /**
-             * Success
-             * @description Whether the request was successful
-             * @default true
-             */
-            success: boolean;
-            /**
-             * Data
-             * @description Response data payload
-             */
-            data?: components["schemas"]["Market"][] | null;
+            data?: components["schemas"]["MarketRow"][] | null;
             /** @description Error details if request failed */
             error?: components["schemas"]["ErrorDetail"] | null;
             /** @description Response metadata including pagination info */
@@ -4676,6 +8045,21 @@ export interface components {
             /** @description Response metadata including pagination info */
             meta: components["schemas"]["ResponseMeta"];
         };
+        /** ParentIdentity */
+        ParentIdentity: {
+            /**
+             * Parentasin
+             * @description Requested parent ASIN.
+             */
+            parentAsin: string;
+            /**
+             * Site
+             * @description Amazon site.
+             * @default amazon.com
+             * @constant
+             */
+            site: "amazon.com";
+        };
         /**
          * Product
          * @description Flat product response for OpenAPI consumers.
@@ -4699,7 +8083,7 @@ export interface components {
             asin: string;
             /**
              * Parentasin
-             * @description Parent ASIN for variations. Example: 'B07FR2V8SH'. Null if standalone.
+             * @description Parent ASIN grouping the variations. Equal to asin means no parent or parent unknown.
              */
             parentAsin?: string | null;
             /**
@@ -4744,7 +8128,7 @@ export interface components {
             categoryPath?: string[];
             /**
              * Categoryid
-             * @description Amazon category node ID. Null if unavailable.
+             * @description Currently the level-1 category name (categoryPath[0]), not an Amazon node ID.
              */
             categoryId?: string | null;
             /**
@@ -4764,12 +8148,12 @@ export interface components {
             bsrCategoryLink?: string | null;
             /**
              * Bsrgrowth
-             * @description BSR change vs prior period (positive = worsened). Example: -50. Null if no prior data.
+             * @description 7-day BSR change = rank 7 days ago − rank today; positive means the rank improved. Example: 1200. Null if no prior data.
              */
             bsrGrowth?: number | null;
             /**
              * Bsrgrowthrate
-             * @description BSR change rate. Decimal (0.15 = 15% worsened). Null if no prior data.
+             * @description bsrGrowth ÷ the rank 7 days ago. Decimal; positive means the rank improved. Null if no prior data.
              */
             bsrGrowthRate?: number | null;
             /**
@@ -4789,7 +8173,7 @@ export interface components {
             subBsrCategoryLink?: string | null;
             /**
              * Subbsrgrowth
-             * @description Sub-BSR change vs prior period. Null if no prior data.
+             * @description 7-day sub-category BSR change = rank 7 days ago − rank today; positive means the rank improved. Null if no prior data.
              */
             subBsrGrowth?: number | null;
             /**
@@ -4894,22 +8278,22 @@ export interface components {
             buyBoxSellerCountryCode?: string | null;
             /**
              * Weight
-             * @description Product weight with unit. Example: '1.5 pounds'. Null if unlisted.
+             * @description Product weight. No data in the source currently (always null); use packageWeight.
              */
             weight?: string | null;
             /**
              * Dimensions
-             * @description Product dimensions. Example: '10 x 5 x 3 inches'. Null if unlisted.
+             * @description Product dimensions. No data in the source currently (always null); use packageDimensions.
              */
             dimensions?: string | null;
             /**
              * Packageweight
-             * @description Package weight with unit. Null if unlisted.
+             * @description Page specification 'Item Weight' as shown, e.g. '2.49 Pounds'. Null if unlisted.
              */
             packageWeight?: string | null;
             /**
              * Packagedimensions
-             * @description Package dimensions. Example: '8 x 6 x 2 inches'. Null if unlisted.
+             * @description Page specification 'Package Dimensions' as shown. Null if unlisted.
              */
             packageDimensions?: string | null;
             /**
@@ -4919,14 +8303,187 @@ export interface components {
             variantCount?: number | null;
             /**
              * Lqs
-             * @description Listing Quality Score (0-100, higher is better). Example: 85. Null if unavailable.
+             * @description Listing Quality Score. No data in the source currently (always null).
              */
             lqs?: number | null;
             /**
              * Qacount
-             * @description Number of customer Q&A entries. Example: 12. Null if unavailable.
+             * @description Number of customer Q&A entries. No data in the source currently (always null).
              */
             qaCount?: number | null;
+            /**
+             * Packageweightoz
+             * @description Package weight in ounces, converted from packageWeight and rounded to one decimal. Null when the unit cannot be parsed. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value.
+             */
+            packageWeightOz?: number | null;
+            /**
+             * Packagesizetype
+             * @description Package size tier (US 2024-25 FBA tiers). Mostly inferred from weight alone, since dimensions are rarely listed.
+             */
+            packageSizeType?: ("smallStandard" | "largeStandard" | "largeBulky" | "extraLarge") | null;
+            /**
+             * Grossmarginrate
+             * @description (price − fbaFee) ÷ price, decimal; excludes referral fee and cost of goods. Null when the FBA fee is unknown. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value.
+             */
+            grossMarginRate?: number | null;
+            /**
+             * Monthlyrevenuegrowthrate
+             * @description monthlyRevenueFloor today vs the same-basis value 30 days earlier, minus 1. Decimal. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value.
+             */
+            monthlyRevenueGrowthRate?: number | null;
+            /**
+             * Parentmonthlyrevenuegrowthrate
+             * @description parentMonthlyRevenueFloor today vs the same-basis value 30 days earlier, minus 1. Decimal. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value.
+             */
+            parentMonthlyRevenueGrowthRate?: number | null;
+        };
+        /**
+         * ProductDetailBatch
+         * @description asins mode: one item per requested ASIN, in request order.
+         */
+        ProductDetailBatch: {
+            context: components["schemas"]["ProductDetailContext"];
+            /**
+             * Items
+             * @description Same length and order as the requested asins.
+             */
+            items: components["schemas"]["ProductDetailItem"][];
+        };
+        /** ProductDetailContext */
+        ProductDetailContext: {
+            /**
+             * Marketplace
+             * @description Marketplace.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Site
+             * @description Amazon site.
+             * @default amazon.com
+             * @constant
+             */
+            site: "amazon.com";
+            /**
+             * Requesteddaterange
+             * @description dateRange exactly as requested; null when omitted.
+             */
+            requestedDateRange: string | null;
+            /**
+             * Resolveddate
+             * @description Snapshot partition date actually read. On the Elasticsearch path it is the synced snapshot date recorded in the index registry, and null when that record is unavailable.
+             */
+            resolvedDate: string | null;
+            /**
+             * Granularity
+             * @description A snapshot describes one day.
+             * @default day
+             * @constant
+             */
+            granularity: "day";
+        };
+        /** ProductDetailItem */
+        ProductDetailItem: {
+            identity: components["schemas"]["ProductIdentity"];
+            /**
+             * Status
+             * @description ok: found in the snapshot; empty: not found.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /**
+             * Emptyreason
+             * @description asin_not_found: the snapshot exists but does not contain this ASIN. The catalog only holds amazon.com products with a USD price above 0 and a resolvable parent, so such products are also not found. Null when status=ok.
+             */
+            emptyReason: "asin_not_found" | null;
+            /** @description The product; null when status=empty. */
+            product: components["schemas"]["Product"] | null;
+        };
+        /**
+         * ProductDetailParentPage
+         * @description parentAsin mode: one page of the parent's members.
+         */
+        ProductDetailParentPage: {
+            context: components["schemas"]["ProductDetailContext"];
+            identity: components["schemas"]["ParentIdentity"];
+            /**
+             * Status
+             * @description ok: at least one product has this parent; empty: none in the snapshot.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /**
+             * Emptyreason
+             * @description parent_asin_not_found when status=empty; otherwise null.
+             */
+            emptyReason: "parent_asin_not_found" | null;
+            /**
+             * Items
+             * @description This page's members, ordered by monthlySalesFloor desc (nulls last) then asin.
+             */
+            items: components["schemas"]["Product"][];
+        };
+        /**
+         * ProductHistoryContext
+         * @description Scope of a history response.
+         */
+        ProductHistoryContext: {
+            /**
+             * Requesteddatefrom
+             * @description Echo of startDate.
+             */
+            requestedDateFrom: string;
+            /**
+             * Requesteddateto
+             * @description Echo of endDate.
+             */
+            requestedDateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description First observation date in the window; null when none.
+             */
+            resolvedDateFrom: string | null;
+            /**
+             * Resolveddateto
+             * @description Last observation date in the window; null when none.
+             */
+            resolvedDateTo: string | null;
+            /**
+             * Granularity
+             * @description Each point is one day's observation; at most one point per day.
+             * @default day
+             * @constant
+             */
+            granularity: "day";
+            /**
+             * Timestampskind
+             * @description timestamps are days with an observation record, not a continuous calendar; days can be missing.
+             * @default observationDay
+             * @constant
+             */
+            timestampsKind: "observationDay";
+        };
+        /**
+         * ProductHistoryLatest
+         * @description Identity as last observed inside the requested window.
+         */
+        ProductHistoryLatest: {
+            /**
+             * Parentasin
+             * @description Parent ASIN last observed in the window (tail of the parentAsin series). Equal to asin means no parent or parent unknown. Describes the window, not the product today — use /products/detail for the current parent.
+             */
+            parentAsin: string | null;
+            /**
+             * Title
+             * @description Title last observed in the window (tail of the title series).
+             */
+            title: string | null;
+            /**
+             * Imageurl
+             * @description Main image last observed in the window (tail of the imageUrl series).
+             */
+            imageUrl: string | null;
         };
         /**
          * ProductHistorySearch
@@ -4935,7 +8492,7 @@ export interface components {
         ProductHistorySearch: {
             /**
              * Asin
-             * @description Amazon Standard Identification Number (10 chars)
+             * @description Single ASIN in canonical form: 10 uppercase letters/digits (^[A-Z0-9]{10}$). Lowercase or suffixed values are rejected with asin_must_be_normalized.
              */
             asin: string;
             /**
@@ -4950,11 +8507,16 @@ export interface components {
             endDate: string;
             /**
              * Marketplace
-             * @description Amazon marketplace code.
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
+            /**
+             * Aspects
+             * @description Return only these series (response field names); omit for all. timestamps, latest and context are always returned. Empty, unknown or duplicate values are rejected with invalid_aspects.
+             */
+            aspects?: ("price" | "bsr" | "subBsr" | "monthlySalesFloor" | "rating" | "ratingCount" | "sellerCount" | "title" | "imageUrl" | "bestSeller" | "amazonChoice" | "newRelease" | "aPlus" | "inventoryStatus" | "bsrCategory" | "subBsrCategory" | "parentAsin")[] | null;
         };
         /**
          * ProductHistoryTimeSeriesItem
@@ -5042,11 +8604,1432 @@ export interface components {
              */
             inventoryStatus?: components["schemas"]["ChangelogEntry"][];
             /**
+             * Bsrcategory
+             * @description Main-category rank node changes, recorded when the name changes (value: {name, nodeId, link, isRoot=true}; nodeId is null for root categories).
+             */
+            bsrCategory?: components["schemas"]["BsrCategoryChange"][];
+            /**
+             * Subbsrcategory
+             * @description Sub-category rank node changes, recorded when the name changes (value: {name, nodeId, link, isRoot=false}).
+             */
+            subBsrCategory?: components["schemas"]["BsrCategoryChange"][];
+            /**
+             * Parentasin
+             * @description Parent ASIN changes (value: str). Equal to asin means no parent or parent unknown; a product that moved to another parent shows one entry per parent.
+             */
+            parentAsin?: components["schemas"]["ChangelogEntry"][];
+            /**
              * Currency
              * @description ISO 4217 currency code for all monetary fields.
              * @default USD
              */
             currency: string;
+            /** @description Parent ASIN, title and main image as last observed in the window — the tails of the parentAsin, title and imageUrl series. Use /products/detail for current values. */
+            latest?: components["schemas"]["ProductHistoryLatest"] | null;
+            /** @description Requested and observed date window. */
+            context?: components["schemas"]["ProductHistoryContext"] | null;
+        };
+        /** ProductIdentity */
+        ProductIdentity: {
+            /**
+             * Asin
+             * @description Requested ASIN, echoed as sent.
+             */
+            asin: string;
+            /**
+             * Site
+             * @description Amazon site.
+             * @default amazon.com
+             * @constant
+             */
+            site: "amazon.com";
+        };
+        /**
+         * ProductSalesTrend
+         * @description Monthly sales trend for one ASIN and its parent.
+         */
+        ProductSalesTrend: {
+            /**
+             * Asin
+             * @description Requested ASIN.
+             */
+            asin: string;
+            /**
+             * Parentasin
+             * @description The product's current parent ASIN, independent of the window: from today's product detail record, else the newest in-catalog month's parent; null when neither exists. Equal to asin means no parent or unknown. Per-month parents are in points[].parentAsin.
+             */
+            parentAsin: string | null;
+            /**
+             * Title
+             * @description Current title; null when the product is no longer in the catalog.
+             */
+            title: string | null;
+            /**
+             * Imageurl
+             * @description Current main image; null when the product is no longer in the catalog.
+             */
+            imageUrl: string | null;
+            context: components["schemas"]["SalesTrendContext"];
+            /**
+             * Points
+             * @description Ascending by month, exactly one element per window month (no gaps).
+             */
+            points: components["schemas"]["SalesTrendPointItem"][];
+        };
+        /**
+         * ProductSalesTrendRequest
+         * @description Request for one ASIN's monthly sales trend.
+         */
+        ProductSalesTrendRequest: {
+            /**
+             * Asin
+             * @description Single ASIN in canonical form: 10 uppercase letters/digits (^[A-Z0-9]{10}$). Lowercase, spaces or a site suffix are rejected with asin_must_be_normalized. No batch.
+             */
+            asin: string;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Startmonth
+             * @description First month, YYYY-MM (earliest 2026-02). Defaults to endMonth minus 11 months (12 points), but never earlier than 2026-02.
+             */
+            startMonth?: string | null;
+            /**
+             * Endmonth
+             * @description Last month, YYYY-MM. Defaults to the latest month: the month of today (UTC) minus 2 days, so the current month is served from the 3rd. Unlike dateRange on /products/search, the current month is accepted.
+             */
+            endMonth?: string | null;
+        };
+        /** ProductTrafficAnalysisWindow */
+        ProductTrafficAnalysisWindow: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate?: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate?: string;
+        };
+        /** ProductTrafficDistributionPoint */
+        ProductTrafficDistributionPoint: {
+            /**
+             * Band
+             * @description Distribution band; unknown denotes missing classification evidence.
+             */
+            band?: string;
+            /**
+             * Termcount
+             * @description Keyword count in this band.
+             */
+            termCount?: number;
+            /**
+             * Termshare
+             * @description Share of keywords in this distribution band, from 0 to 1.
+             */
+            termShare?: number;
+        };
+        /** ProductTrafficDistributionProfile */
+        ProductTrafficDistributionProfile: {
+            /**
+             * Band
+             * @description Distribution band; values depend on the parent distribution.
+             */
+            band?: string;
+            /** @description Term count trend. */
+            termCountTrend?: components["schemas"]["ProductTrafficTermCountTrend"];
+            /** @description Term share. */
+            termShare?: components["schemas"]["ProductTrafficTermShareProfile"];
+        };
+        /** ProductTrafficExploreTypePoint */
+        ProductTrafficExploreTypePoint: {
+            /**
+             * Exploretype
+             * @description Traffic placement type.
+             */
+            exploreType?: "ORG" | "SP" | "SB" | "SBV" | "SPR";
+            /**
+             * Estimateimpressionpoint
+             * @description Estimated traffic score for this placement type, in impression points; not actual impression counts.
+             */
+            estimateImpressionPoint?: number;
+            /**
+             * Termcount
+             * @description Keyword count for this placement type.
+             */
+            termCount?: number;
+            /**
+             * Trafficshare
+             * @description Share of the ASIN's total estimated impression points, from 0 to 1.
+             */
+            trafficShare?: number;
+        };
+        /** ProductTrafficExploreTypeProfile */
+        ProductTrafficExploreTypeProfile: {
+            /**
+             * Exploretype
+             * @description Explore type.
+             */
+            exploreType?: "ORG" | "SP" | "SB" | "SBV" | "SPR";
+            /** @description Impression trend. */
+            impressionTrend?: components["schemas"]["ProductTrafficImpressionTrend"];
+            /** @description Term count trend. */
+            termCountTrend?: components["schemas"]["ProductTrafficTermCountTrend"];
+        };
+        /** ProductTrafficFloatMetric */
+        ProductTrafficFloatMetric: {
+            /**
+             * Value
+             * @description Numeric metric value; null means unavailable, while zero remains a measured value.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description Direction semantics for interpreting the metric value.
+             */
+            direction?: "higher_means_more" | "positive_means_growth" | "higher_means_more_consistent" | "higher_means_more_aligned" | "higher_means_more_evidence";
+        };
+        /** ProductTrafficIdentity */
+        ProductTrafficIdentity: {
+            /**
+             * Asin
+             * @description Requested ASIN.
+             */
+            asin: string;
+            /**
+             * Site
+             * @description Marketplace site identifying this ASIN.
+             */
+            site: string;
+        };
+        /** ProductTrafficImpressionEvidence */
+        ProductTrafficImpressionEvidence: {
+            /** @description First-period estimated traffic score (impression points), not actual impression counts. */
+            firstPeriodEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Last-period estimated traffic score (impression points), not actual impression counts. */
+            lastPeriodEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Absolute change in estimated traffic score, in impression points; not actual impressions. */
+            firstToLastEstimateImpressionPointChangeCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First-to-last relative traffic-score change as a decimal rate: 0.05 means +5%. Null is unavailable, not zero. */
+            firstToLastEstimateImpressionPointChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Previous-to-last relative traffic-score change as a decimal rate: 0.05 means +5%. */
+            previousToLastEstimateImpressionPointChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Upstream normalized slope. Formula and cross-ASIN comparability are not specified here; do not interpret its magnitude as percentage growth or compare magnitudes across ASINs. Use trend for the overall conclusion and explicit change-rate metrics for growth. */
+            normalizedSlopePerPeriod?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Direction consistency rate. */
+            directionConsistencyRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Aligned period count. */
+            alignedPeriodCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Eligible period pair count. */
+            eligiblePeriodPairCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Peak estimate impression point. */
+            peakEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Peak period. */
+            peakPeriod?: components["schemas"]["ProductTrafficAnalysisWindow"];
+            /** @description Lowest estimate impression point. */
+            lowestEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Lowest period. */
+            lowestPeriod?: components["schemas"]["ProductTrafficAnalysisWindow"];
+            /** @description First-period traffic share as a decimal fraction: 0.05 means 5%. */
+            firstPeriodTrafficShare?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Last-period traffic share as a decimal fraction: 0.05 means 5%. */
+            lastPeriodTrafficShare?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Absolute decimal share difference (last minus first): 0.05 means +5 percentage points, not +5% relative growth. */
+            trafficShareChangeAmount?: components["schemas"]["ProductTrafficFloatMetric"];
+        };
+        /** ProductTrafficImpressionSummary */
+        ProductTrafficImpressionSummary: {
+            /**
+             * Supported
+             * @description Whether this component is calculable.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Component calculation status; partial components remain usable.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Stable reason why this component cannot be calculated; null when available.
+             */
+            unsupportedReason?: string;
+            /**
+             * Trend
+             * @description Primary upstream trend conclusion for this component; stable does not mean every period is unchanged. Not a forecast or causal explanation.
+             */
+            trend?: string;
+            /**
+             * Volatilitylevel
+             * @description Volatility level.
+             */
+            volatilityLevel?: string;
+            /**
+             * Lastperiodwindowposition
+             * @description Last-period position within this component's own analysis window; not a market rank or cross-ASIN percentile.
+             */
+            lastPeriodWindowPosition?: string;
+            /** @description Core first/last values and changes, copied without recomputation. */
+            trendEvidence?: components["schemas"]["ProductTrafficImpressionSummaryEvidence"];
+        };
+        /** ProductTrafficImpressionSummaryEvidence */
+        ProductTrafficImpressionSummaryEvidence: {
+            /** @description First-period estimated traffic score (impression points), not actual impression counts. */
+            firstPeriodEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Last-period estimated traffic score (impression points), not actual impression counts. */
+            lastPeriodEstimateImpressionPoint?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Absolute change in estimated traffic score, in impression points; not actual impressions. */
+            firstToLastEstimateImpressionPointChangeCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First-to-last relative traffic-score change as a decimal rate: 0.05 means +5%. Null is unavailable, not zero. */
+            firstToLastEstimateImpressionPointChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Previous-to-last relative traffic-score change as a decimal rate: 0.05 means +5%. */
+            previousToLastEstimateImpressionPointChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+        };
+        /** ProductTrafficImpressionTrend */
+        ProductTrafficImpressionTrend: {
+            /**
+             * Supported
+             * @description Whether this component is calculable.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Component calculation status; partial components remain usable.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Stable reason why this component cannot be calculated; null when available.
+             */
+            unsupportedReason?: string;
+            /**
+             * Trend
+             * @description Primary upstream trend conclusion for this component; stable does not mean every period is unchanged. Not a forecast or causal explanation.
+             */
+            trend?: string;
+            /**
+             * Volatilitylevel
+             * @description Volatility level.
+             */
+            volatilityLevel?: string;
+            /**
+             * Lastperiodwindowposition
+             * @description Last-period position within this component's own analysis window; not a market rank or cross-ASIN percentile.
+             */
+            lastPeriodWindowPosition?: string;
+            /** @description Statistical evidence for the trend; numeric metrics contain value and direction. */
+            trendEvidence?: components["schemas"]["ProductTrafficImpressionEvidence"];
+        };
+        /** ProductTrafficIntegerMetric */
+        ProductTrafficIntegerMetric: {
+            /**
+             * Value
+             * @description Numeric metric value; null means unavailable, while zero remains a measured value.
+             */
+            value?: number;
+            /**
+             * Direction
+             * @description Direction semantics for interpreting the metric value.
+             */
+            direction?: "higher_means_more" | "positive_means_growth" | "higher_means_more_consistent" | "higher_means_more_aligned" | "higher_means_more_evidence";
+        };
+        /** ProductTrafficTermCountEvidence */
+        ProductTrafficTermCountEvidence: {
+            /** @description First period term count. */
+            firstPeriodTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Last period term count. */
+            lastPeriodTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First to last term count change count. */
+            firstToLastTermCountChangeCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First-to-last relative keyword-count change as a decimal rate: 0.05 means +5%. Null is unavailable, not zero. */
+            firstToLastTermCountChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Previous-to-last relative keyword-count change as a decimal rate: 0.05 means +5%. */
+            previousToLastTermCountChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Upstream normalized slope. Formula and cross-ASIN comparability are not specified here; do not interpret its magnitude as percentage growth or compare magnitudes across ASINs. Use trend for the overall conclusion and explicit change-rate metrics for growth. */
+            normalizedSlopePerPeriod?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Direction consistency rate. */
+            directionConsistencyRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Aligned period count. */
+            alignedPeriodCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Eligible period pair count. */
+            eligiblePeriodPairCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Peak term count. */
+            peakTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Peak period. */
+            peakPeriod?: components["schemas"]["ProductTrafficAnalysisWindow"];
+            /** @description Lowest term count. */
+            lowestTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Lowest period. */
+            lowestPeriod?: components["schemas"]["ProductTrafficAnalysisWindow"];
+        };
+        /** ProductTrafficTermCountSummary */
+        ProductTrafficTermCountSummary: {
+            /**
+             * Supported
+             * @description Whether this component is calculable.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Component calculation status; partial components remain usable.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Stable reason why this component cannot be calculated; null when available.
+             */
+            unsupportedReason?: string;
+            /**
+             * Trend
+             * @description Primary upstream trend conclusion for this component; stable does not mean every period is unchanged. Not a forecast or causal explanation.
+             */
+            trend?: string;
+            /**
+             * Volatilitylevel
+             * @description Volatility level.
+             */
+            volatilityLevel?: string;
+            /**
+             * Lastperiodwindowposition
+             * @description Last-period position within this component's own analysis window; not a market rank or cross-ASIN percentile.
+             */
+            lastPeriodWindowPosition?: string;
+            /** @description Core first/last keyword counts and changes, copied without recomputation. */
+            trendEvidence?: components["schemas"]["ProductTrafficTermCountSummaryEvidence"];
+        };
+        /** ProductTrafficTermCountSummaryEvidence */
+        ProductTrafficTermCountSummaryEvidence: {
+            /** @description First period term count. */
+            firstPeriodTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description Last period term count. */
+            lastPeriodTermCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First to last term count change count. */
+            firstToLastTermCountChangeCount?: components["schemas"]["ProductTrafficIntegerMetric"];
+            /** @description First-to-last relative keyword-count change as a decimal rate: 0.05 means +5%. Null is unavailable, not zero. */
+            firstToLastTermCountChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Previous-to-last relative keyword-count change as a decimal rate: 0.05 means +5%. */
+            previousToLastTermCountChangeRate?: components["schemas"]["ProductTrafficFloatMetric"];
+        };
+        /** ProductTrafficTermCountTrend */
+        ProductTrafficTermCountTrend: {
+            /**
+             * Supported
+             * @description Whether this component is calculable.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Component calculation status; partial components remain usable.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Stable reason why this component cannot be calculated; null when available.
+             */
+            unsupportedReason?: string;
+            /**
+             * Trend
+             * @description Primary upstream trend conclusion for this component; stable does not mean every period is unchanged. Not a forecast or causal explanation.
+             */
+            trend?: string;
+            /**
+             * Volatilitylevel
+             * @description Volatility level.
+             */
+            volatilityLevel?: string;
+            /**
+             * Lastperiodwindowposition
+             * @description Last-period position within this component's own analysis window; not a market rank or cross-ASIN percentile.
+             */
+            lastPeriodWindowPosition?: string;
+            /** @description Statistical evidence for the trend; numeric metrics contain value and direction. */
+            trendEvidence?: components["schemas"]["ProductTrafficTermCountEvidence"];
+        };
+        /** ProductTrafficTermCoverageProfile */
+        ProductTrafficTermCoverageProfile: {
+            /** @description Distinct keyword coverage across all traffic types. */
+            total?: components["schemas"]["ProductTrafficTermCountTrend"];
+            /** @description Distinct organic keyword coverage. */
+            organic?: components["schemas"]["ProductTrafficTermCountTrend"];
+            /** @description Distinct advertising keyword coverage. */
+            ad?: components["schemas"]["ProductTrafficTermCountTrend"];
+            /** @description Coverage of organic keywords appearing in the first three result pages. */
+            organicFirst3Pages?: components["schemas"]["ProductTrafficTermCountTrend"];
+        };
+        /** ProductTrafficTermCoverageSummary */
+        ProductTrafficTermCoverageSummary: {
+            /** @description Total keyword coverage. */
+            total?: components["schemas"]["ProductTrafficTermCountSummary"];
+            /** @description Organic keyword coverage. */
+            organic?: components["schemas"]["ProductTrafficTermCountSummary"];
+            /** @description Advertising keyword coverage. */
+            ad?: components["schemas"]["ProductTrafficTermCountSummary"];
+            /** @description Organic keyword coverage in the first three result pages. */
+            organicFirst3Pages?: components["schemas"]["ProductTrafficTermCountSummary"];
+        };
+        /** ProductTrafficTermShareProfile */
+        ProductTrafficTermShareProfile: {
+            /**
+             * Supported
+             * @description Whether this component is calculable.
+             */
+            supported?: boolean;
+            /**
+             * Calculationstatus
+             * @description Component calculation status; partial components remain usable.
+             */
+            calculationStatus?: "complete" | "partial" | "unavailable";
+            /**
+             * Unsupportedreason
+             * @description Stable reason why this component cannot be calculated; null when available.
+             */
+            unsupportedReason?: string;
+            /** @description First-period keyword share as a decimal fraction: 0.05 means 5%. */
+            firstPeriodTermShare?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Last-period keyword share as a decimal fraction: 0.05 means 5%. */
+            lastPeriodTermShare?: components["schemas"]["ProductTrafficFloatMetric"];
+            /** @description Absolute decimal share difference (last minus first): 0.05 means +5 percentage points, not +5% relative growth. */
+            termShareChangeAmount?: components["schemas"]["ProductTrafficFloatMetric"];
+        };
+        /** ProductTrafficTermsProfile */
+        ProductTrafficTermsProfile: {
+            summary: components["schemas"]["ProductTrafficTermsProfileSummary"];
+            /** Trafficstructurechange */
+            trafficStructureChange: {
+                [key: string]: components["schemas"]["ProductTrafficTermsProfileStructureChange"];
+            };
+            organicStructureChange: components["schemas"]["ProductTrafficTermsProfileOrganicStructureChange"];
+            termChangeDrivers: components["schemas"]["ProductTrafficTermsProfileTermChangeDrivers"];
+        };
+        /** ProductTrafficTermsProfileBatchItem */
+        ProductTrafficTermsProfileBatchItem: {
+            identity: components["schemas"]["ProductTrafficTermsProfileIdentity"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /** Emptyreason */
+            emptyReason?: "asin_not_found" | "current_period_unavailable";
+            productTrafficTermsProfile?: components["schemas"]["ProductTrafficTermsProfile"];
+        };
+        /** ProductTrafficTermsProfileContext */
+        ProductTrafficTermsProfileContext: {
+            /** Marketplace */
+            marketplace: string;
+            /** Requesteddate */
+            requestedDate: string;
+            /** Resolveddate */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @constant
+             */
+            granularity: "week";
+            dataWindow: components["schemas"]["ProductTrafficTermsProfileDataWindow"];
+        };
+        /** ProductTrafficTermsProfileData */
+        ProductTrafficTermsProfileData: {
+            context: components["schemas"]["ProductTrafficTermsProfileContext"];
+            /** Items */
+            items: components["schemas"]["ProductTrafficTermsProfileBatchItem"][];
+        };
+        /** ProductTrafficTermsProfileDataWindow */
+        ProductTrafficTermsProfileDataWindow: {
+            currentPeriod?: components["schemas"]["ProductTrafficTermsProfilePeriod"];
+            previousPeriod?: components["schemas"]["ProductTrafficTermsProfilePeriod"];
+        };
+        /** ProductTrafficTermsProfileDriver */
+        ProductTrafficTermsProfileDriver: {
+            /** Keyword */
+            keyword: string;
+            searchDemandChange: components["schemas"]["ProductTrafficTermsProfileSearchDemandChange"];
+            impressionChange: components["schemas"]["ProductTrafficTermsProfileImpressionChange"];
+        };
+        /** ProductTrafficTermsProfileIdentity */
+        ProductTrafficTermsProfileIdentity: {
+            /** Asin */
+            asin: string;
+            /** Site */
+            site: string;
+        };
+        /** ProductTrafficTermsProfileImpressionChange */
+        ProductTrafficTermsProfileImpressionChange: {
+            /**
+             * Exploretype
+             * @enum {string}
+             */
+            exploreType: "ORG" | "SP" | "SB" | "SBV" | "SPR";
+            /** Currestimateimpressionpoint */
+            currEstimateImpressionPoint: number;
+            /** Prevestimateimpressionpoint */
+            prevEstimateImpressionPoint?: number;
+            /** Impressionpointchangecount */
+            impressionPointChangeCount?: number;
+            /** Impressionpointchangerate */
+            impressionPointChangeRate?: number;
+            /** Currasintrafficshare */
+            currAsinTrafficShare?: number;
+            /** Prevasintrafficshare */
+            prevAsinTrafficShare?: number;
+            /** Asintrafficsharechangeamount */
+            asinTrafficShareChangeAmount?: number;
+            /** Contributionrate */
+            contributionRate: number;
+            /** Currabsoluteposition */
+            currAbsolutePosition?: number;
+            /** Prevabsoluteposition */
+            prevAbsolutePosition?: number;
+            /** Absolutepositionimprovementcount */
+            absolutePositionImprovementCount?: number;
+            /** Curravgposition */
+            currAvgPosition?: number;
+            /** Prevavgposition */
+            prevAvgPosition?: number;
+            /** Avgpositionimprovementamount */
+            avgPositionImprovementAmount?: number;
+        };
+        /** ProductTrafficTermsProfileLostTerm */
+        ProductTrafficTermsProfileLostTerm: {
+            /** Keyword */
+            keyword: string;
+            /** Exitposition */
+            exitPosition?: number;
+        };
+        /** ProductTrafficTermsProfileNewTerm */
+        ProductTrafficTermsProfileNewTerm: {
+            /** Keyword */
+            keyword: string;
+            /** Entryposition */
+            entryPosition: number;
+        };
+        /** ProductTrafficTermsProfileOrganicStructureChange */
+        ProductTrafficTermsProfileOrganicStructureChange: {
+            /** Currtermcount */
+            currTermCount: number;
+            /** Prevtermcount */
+            prevTermCount?: number;
+            /** Termcountchange */
+            termCountChange?: number;
+            /** Termcountchangerate */
+            termCountChangeRate?: number;
+            /** Newtermcount */
+            newTermCount?: number;
+            /** Losttermcount */
+            lostTermCount?: number;
+            /** Newterms */
+            newTerms: components["schemas"]["ProductTrafficTermsProfileNewTerm"][];
+            /** Lostterms */
+            lostTerms: components["schemas"]["ProductTrafficTermsProfileLostTerm"][];
+        };
+        /** ProductTrafficTermsProfilePeriod */
+        ProductTrafficTermsProfilePeriod: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate: string;
+        };
+        /** ProductTrafficTermsProfileRequest */
+        ProductTrafficTermsProfileRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Date
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest profile on or before this date; actual date is `resolvedDate`.
+             */
+            date: string;
+            /**
+             * Asin
+             * @description Single ASIN; mutually exclusive with asins.
+             */
+            asin?: string;
+            /**
+             * Asins
+             * @description ASIN batch; mutually exclusive with asin, up to 20. Duplicates after normalization are rejected.
+             */
+            asins?: string[];
+        };
+        /** ProductTrafficTermsProfileSearchDemandChange */
+        ProductTrafficTermsProfileSearchDemandChange: {
+            /** Currestimatesearchcount */
+            currEstimateSearchCount?: number;
+            /** Prevestimatesearchcount */
+            prevEstimateSearchCount?: number;
+            /** Estimatesearchcountchangecount */
+            estimateSearchCountChangeCount?: number;
+            /** Estimatesearchcountchangerate */
+            estimateSearchCountChangeRate?: number;
+        };
+        /** ProductTrafficTermsProfileStructureChange */
+        ProductTrafficTermsProfileStructureChange: {
+            /** Currestimateimpressionpoint */
+            currEstimateImpressionPoint: number;
+            /** Currasintrafficshare */
+            currAsinTrafficShare?: number;
+            /** Prevestimateimpressionpoint */
+            prevEstimateImpressionPoint?: number;
+            /** Prevasintrafficshare */
+            prevAsinTrafficShare?: number;
+            /** Impressionpointchangecount */
+            impressionPointChangeCount?: number;
+            /** Impressionpointchangerate */
+            impressionPointChangeRate?: number;
+            /** Currtermcount */
+            currTermCount: number;
+            /** Prevtermcount */
+            prevTermCount?: number;
+            /** Termcountchange */
+            termCountChange?: number;
+            /** Termcountchangerate */
+            termCountChangeRate?: number;
+        };
+        /** ProductTrafficTermsProfileSummary */
+        ProductTrafficTermsProfileSummary: {
+            /** Currestimateimpressionpoint */
+            currEstimateImpressionPoint: number;
+            /** Prevestimateimpressionpoint */
+            prevEstimateImpressionPoint?: number;
+            /** Impressionpointchangecount */
+            impressionPointChangeCount?: number;
+            /** Impressionpointchangerate */
+            impressionPointChangeRate?: number;
+            /** Currtermcount */
+            currTermCount: number;
+            /** Prevtermcount */
+            prevTermCount?: number;
+            /** Termcountchange */
+            termCountChange?: number;
+            /** Termcountchangerate */
+            termCountChangeRate?: number;
+            /** Totalincreaseimpressionpoint */
+            totalIncreaseImpressionPoint?: number;
+            /** Totaldecreaseimpressionpoint */
+            totalDecreaseImpressionPoint?: number;
+        };
+        /** ProductTrafficTermsProfileTermChangeDrivers */
+        ProductTrafficTermsProfileTermChangeDrivers: {
+            /** Gainercount */
+            gainerCount?: number;
+            /** Losercount */
+            loserCount?: number;
+            /** Top10Gainers */
+            top10Gainers: components["schemas"]["ProductTrafficTermsProfileDriver"][];
+            /** Top10Losers */
+            top10Losers: components["schemas"]["ProductTrafficTermsProfileDriver"][];
+        };
+        /** ProductTrafficTermsTimelineBatchItem */
+        ProductTrafficTermsTimelineBatchItem: {
+            /** @description Query identity. */
+            identity: components["schemas"]["ProductTrafficTermsTimelineIdentity"];
+            /**
+             * Status
+             * @description Business result status.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /**
+             * Emptyreason
+             * @description Empty-result reason.
+             */
+            emptyReason?: "asin_keyword_not_found";
+            /**
+             * Series
+             * @description Timeline series of matched periods.
+             */
+            series?: components["schemas"]["ProductTrafficTermsTimelineItem"][];
+        };
+        /** ProductTrafficTermsTimelineContext */
+        ProductTrafficTermsTimelineContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Requesteddatefrom
+             * @description Requested start date.
+             */
+            requestedDateFrom: string;
+            /**
+             * Requesteddateto
+             * @description Requested end date.
+             */
+            requestedDateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description Earliest observed source period start date.
+             */
+            resolvedDateFrom?: string;
+            /**
+             * Resolveddateto
+             * @description Latest observed source period end date.
+             */
+            resolvedDateTo?: string;
+            /**
+             * Granularity
+             * @description Period granularity.
+             */
+            granularity: string;
+        };
+        /** ProductTrafficTermsTimelineData */
+        ProductTrafficTermsTimelineData: {
+            /** @description ASIN+keyword timeline query context. */
+            context: components["schemas"]["ProductTrafficTermsTimelineContext"];
+            /**
+             * Items
+             * @description Batch items.
+             */
+            items?: components["schemas"]["ProductTrafficTermsTimelineBatchItem"][];
+        };
+        /** ProductTrafficTermsTimelineIdentity */
+        ProductTrafficTermsTimelineIdentity: {
+            /**
+             * Asin
+             * @description Product ASIN.
+             */
+            asin: string;
+            /**
+             * Keyword
+             * @description Keyword.
+             */
+            keyword: string;
+            /**
+             * Site
+             * @description Marketplace site code.
+             */
+            site: string;
+        };
+        /** ProductTrafficTermsTimelineItem */
+        ProductTrafficTermsTimelineItem: {
+            /**
+             * Periodstartdate
+             * @description Period start date.
+             */
+            periodStartDate: string;
+            /**
+             * Periodenddate
+             * @description Period end date.
+             */
+            periodEndDate: string;
+            /** @description Product snapshot for the period. */
+            asinSnapshot?: {
+                /**
+                 * Latesttitle
+                 * @description Latest product title.
+                 */
+                latestTitle?: string;
+                /**
+                 * Latestprice
+                 * @description Latest product price.
+                 */
+                latestPrice?: number;
+                /**
+                 * Latestcurrency
+                 * @description Latest currency code.
+                 */
+                latestCurrency?: string;
+                /**
+                 * Latestlink
+                 * @description Latest product URL.
+                 */
+                latestLink?: string;
+                /**
+                 * Latestmainimagelink
+                 * @description Latest product image URL.
+                 */
+                latestMainImageLink?: string;
+                /**
+                 * Latestbrandname
+                 * @description Latest brand name.
+                 */
+                latestBrandName?: string;
+                /**
+                 * Latestproductbadges
+                 * @description Latest badges displayed on the product card.
+                 */
+                latestProductBadges?: string[];
+                /**
+                 * Latestmonthlysalecount
+                 * @description Latest monthly sales count.
+                 */
+                latestMonthlySaleCount?: number;
+                /**
+                 * Latestrating
+                 * @description Latest product rating.
+                 */
+                latestRating?: number;
+                /**
+                 * Latestratingcount
+                 * @description Latest rating count.
+                 */
+                latestRatingCount?: number;
+                /**
+                 * Latestsubbsrcategory
+                 * @description Latest sub-BSR category.
+                 */
+                latestSubBsrCategory?: string;
+                /**
+                 * Latestsubbsr
+                 * @description Latest sub-category BSR.
+                 */
+                latestSubBsr?: number;
+                /**
+                 * Latestbsrcategory
+                 * @description Latest BSR category.
+                 */
+                latestBsrCategory?: string;
+                /**
+                 * Latestbsr
+                 * @description Latest main-category BSR.
+                 */
+                latestBsr?: number;
+                /**
+                 * Latestproducthasvideo
+                 * @description Whether the latest listing has a video.
+                 */
+                latestProductHasVideo?: boolean;
+            };
+            /**
+             * Totalestimateimpressionpoint
+             * @description Total impression point across explore types.
+             */
+            totalEstimateImpressionPoint?: number;
+            /**
+             * Asintotalestimateimpressionpoint
+             * @description ASIN total impression point across all keywords.
+             */
+            asinTotalEstimateImpressionPoint?: number;
+            /**
+             * Keywordestimatesearchcount
+             * @description Estimated keyword search count for the period.
+             */
+            keywordEstimateSearchCount?: number;
+            /**
+             * Keywordabarank
+             * @description Keyword ABA rank for the period.
+             */
+            keywordAbaRank?: number;
+            /**
+             * Asintrafficshare
+             * @description Keyword share of the ASIN's total traffic.
+             */
+            asinTrafficShare?: number;
+            /**
+             * Trafficbyexploretype
+             * @description Traffic, position, and ad evidence by explore type.
+             */
+            trafficByExploreType?: {
+                [key: string]: {
+                    /**
+                     * Estimateimpressionpoint
+                     * @description Estimated impression point for this explore type.
+                     */
+                    estimateImpressionPoint?: number;
+                    /**
+                     * Trafficshare
+                     * @description Share of the keyword total for this explore type.
+                     */
+                    trafficShare?: number;
+                    /**
+                     * Absoluteposition
+                     * @description Absolute position from the latest valid observation.
+                     */
+                    absolutePosition?: number;
+                    /**
+                     * Pageindex
+                     * @description Corresponding page index.
+                     */
+                    pageIndex?: number;
+                    /**
+                     * Pageposition
+                     * @description Corresponding in-page position.
+                     */
+                    pagePosition?: number;
+                    /**
+                     * Latestobservedat
+                     * @description Timestamp of the latest valid position observation.
+                     */
+                    latestObservedAt?: string;
+                    /**
+                     * Avgposition
+                     * @description Average valid position in the period.
+                     */
+                    avgPosition?: number;
+                    /**
+                     * Dayscoveragerate
+                     * @description Observed-day coverage rate in the period.
+                     */
+                    daysCoverageRate?: number;
+                } | {
+                    /**
+                     * Estimateimpressionpoint
+                     * @description Estimated impression point for this explore type.
+                     */
+                    estimateImpressionPoint?: number;
+                    /**
+                     * Trafficshare
+                     * @description Share of the keyword total for this explore type.
+                     */
+                    trafficShare?: number;
+                    /**
+                     * Absoluteposition
+                     * @description Absolute position from the latest valid observation.
+                     */
+                    absolutePosition?: number;
+                    /**
+                     * Pageindex
+                     * @description Corresponding page index.
+                     */
+                    pageIndex?: number;
+                    /**
+                     * Pageposition
+                     * @description Corresponding in-page position.
+                     */
+                    pagePosition?: number;
+                    /**
+                     * Latestobservedat
+                     * @description Timestamp of the latest valid position observation.
+                     */
+                    latestObservedAt?: string;
+                    /**
+                     * Avgposition
+                     * @description Average valid position in the period.
+                     */
+                    avgPosition?: number;
+                    /**
+                     * Dayscoveragerate
+                     * @description Observed-day coverage rate in the period.
+                     */
+                    daysCoverageRate?: number;
+                    /** @description Activity evidence for this ad explore type. */
+                    adActivity?: {
+                        /**
+                         * Adcount
+                         * @description Distinct ad count.
+                         */
+                        adCount?: number;
+                        /**
+                         * Campaigncount
+                         * @description Distinct campaign count.
+                         */
+                        campaignCount?: number;
+                    };
+                };
+            };
+        };
+        /** ProductTrafficTermsTimelineRequest */
+        ProductTrafficTermsTimelineRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Asin
+             * @description Amazon Standard Identification Number (10-character alphanumeric).
+             */
+            asin: string;
+            /**
+             * Keyword
+             * @description Exact keyword to query. Mutually exclusive with `keywords`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected.
+             */
+            keyword?: string;
+            /**
+             * Keywords
+             * @description Keywords to query for the same ASIN in batch, up to 20. Mutually exclusive with `keyword`. Must equal `LOWER(TRIM(value))`; uppercase letters and surrounding whitespace are rejected. Duplicate keywords are rejected.
+             */
+            keywords?: string[];
+            /**
+             * Datefrom
+             * Format: date
+             * @description Start date (YYYY-MM-DD); maximum 26 weeks.
+             */
+            dateFrom: string;
+            /**
+             * Dateto
+             * Format: date
+             * @description End date (YYYY-MM-DD); on or after `dateFrom`, with a maximum 26-week range. Actual range is `resolvedDateFrom` through `resolvedDateTo`.
+             */
+            dateTo: string;
+        };
+        /** ProductTrafficTrendContext */
+        ProductTrafficTrendContext: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Requesteddatefrom
+             * @description Requested range start date.
+             */
+            requestedDateFrom: string;
+            /**
+             * Requesteddateto
+             * @description Requested range end date.
+             */
+            requestedDateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description Start of the earliest complete published weekly period in the requested range.
+             */
+            resolvedDateFrom?: string;
+            /**
+             * Resolveddateto
+             * @description End of the latest complete published weekly period in the requested range.
+             */
+            resolvedDateTo?: string;
+            /**
+             * Granularity
+             * @description Weekly data period.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+        };
+        /** ProductTrafficTrendData */
+        ProductTrafficTrendData: {
+            /** @description Shared request and published coverage context. */
+            context: components["schemas"]["ProductTrafficTrendContext"];
+            /**
+             * Items
+             * @description Exactly one item per requested ASIN, in request order.
+             */
+            items: components["schemas"]["ProductTrafficTrendItem"][];
+        };
+        /** ProductTrafficTrendItem */
+        ProductTrafficTrendItem: {
+            /** @description Requested ASIN identity. */
+            identity: components["schemas"]["ProductTrafficIdentity"];
+            /**
+             * Status
+             * @description Whether any observed weekly series points are available.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /**
+             * Emptyreason
+             * @description Empty-result reason; null for an available result.
+             */
+            emptyReason?: "asin_not_found" | "period_unavailable";
+            /**
+             * Series
+             * @description Observed weekly points in ascending period order; missing periods are not synthesized.
+             */
+            series?: components["schemas"]["ProductTrafficTrendPoint"][];
+        };
+        /** ProductTrafficTrendPoint */
+        ProductTrafficTrendPoint: {
+            /**
+             * Periodstartdate
+             * @description Observed weekly period start date.
+             */
+            periodStartDate?: string;
+            /**
+             * Periodenddate
+             * @description Observed weekly period end date.
+             */
+            periodEndDate?: string;
+            /**
+             * Totalestimateimpressionpoint
+             * @description ASIN estimated traffic score across all traffic types, in impression points; not actual impression counts.
+             */
+            totalEstimateImpressionPoint?: number;
+            /**
+             * Organicestimateimpressionpoint
+             * @description ASIN organic estimated traffic score, in impression points; not actual impression counts.
+             */
+            organicEstimateImpressionPoint?: number;
+            /**
+             * Adestimateimpressionpoint
+             * @description ASIN advertising estimated traffic score, in impression points; not actual impression counts.
+             */
+            adEstimateImpressionPoint?: number;
+            /**
+             * Totaltermcount
+             * @description Total distinct traffic keywords.
+             */
+            totalTermCount?: number;
+            /**
+             * Organictermcount
+             * @description Distinct organic traffic keywords.
+             */
+            organicTermCount?: number;
+            /**
+             * Adtermcount
+             * @description Distinct advertising traffic keywords.
+             */
+            adTermCount?: number;
+            /**
+             * Organicfirst3Pagestermcount
+             * @description Organic keywords appearing in the first three result pages.
+             */
+            organicFirst3PagesTermCount?: number;
+            /**
+             * Trafficbyexploretype
+             * @description Traffic evidence by placement type.
+             */
+            trafficByExploreType?: components["schemas"]["ProductTrafficExploreTypePoint"][];
+            /**
+             * Keyworddemandrankdistribution
+             * @description Keyword counts and shares by ABA demand-rank band.
+             */
+            keywordDemandRankDistribution?: components["schemas"]["ProductTrafficDistributionPoint"][];
+            /**
+             * Organicacquisitionratedistribution
+             * @description Organic keyword counts and shares by acquisition-rate band.
+             */
+            organicAcquisitionRateDistribution?: components["schemas"]["ProductTrafficDistributionPoint"][];
+        };
+        /** ProductTrafficTrendProfile */
+        ProductTrafficTrendProfile: {
+            /** @description Trend of total estimated impression points across all ASIN traffic types. */
+            asinTotalTraffic?: components["schemas"]["ProductTrafficImpressionTrend"];
+            /** @description Trend of organic estimated impression points. */
+            organicTraffic?: components["schemas"]["ProductTrafficImpressionTrend"];
+            /** @description Trend of advertising estimated impression points. */
+            adTraffic?: components["schemas"]["ProductTrafficImpressionTrend"];
+            /** @description Keyword-coverage trends for total, organic, advertising and first-three-page organic traffic. */
+            termCoverage?: components["schemas"]["ProductTrafficTermCoverageProfile"];
+            /**
+             * Trafficbyexploretype
+             * @description Impression and keyword-count trends for each observed placement type.
+             */
+            trafficByExploreType?: components["schemas"]["ProductTrafficExploreTypeProfile"][];
+            /**
+             * Keyworddemandrankdistribution
+             * @description Keyword-count trends and share evidence by ABA demand-rank band.
+             */
+            keywordDemandRankDistribution?: components["schemas"]["ProductTrafficDistributionProfile"][];
+            /**
+             * Organicacquisitionratedistribution
+             * @description Organic keyword-count trends and share evidence by acquisition-rate band.
+             */
+            organicAcquisitionRateDistribution?: components["schemas"]["ProductTrafficDistributionProfile"][];
+        };
+        /** ProductTrafficTrendProfileContext */
+        ProductTrafficTrendProfileContext: {
+            /**
+             * Detaillevel
+             * @description Selected response detail. In summary mode, detailed evidence is deliberately omitted, not unavailable; request full to retrieve it.
+             * @default summary
+             * @enum {string}
+             */
+            detailLevel: "summary" | "full";
+            /**
+             * Marketplace
+             * @description Amazon marketplace code.
+             */
+            marketplace: string;
+            /**
+             * Requesteddate
+             * @description Requested profile snapshot date.
+             */
+            requestedDate: string;
+            /**
+             * Resolveddate
+             * @description Latest published profile partition on or before the requested date.
+             */
+            resolvedDate?: string;
+            /**
+             * Granularity
+             * @description Weekly data period.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Windowperiods
+             * @description Requested fixed analysis windows; currently [4].
+             */
+            windowPeriods: 4[];
+        };
+        /** ProductTrafficTrendProfileData */
+        ProductTrafficTrendProfileData: {
+            /** @description Shared profile query context. */
+            context: components["schemas"]["ProductTrafficTrendProfileContext"];
+            /**
+             * Items
+             * @description One item per requested ASIN, in request order.
+             */
+            items: components["schemas"]["ProductTrafficTrendProfileItem"][];
+        };
+        /** ProductTrafficTrendProfileItem */
+        ProductTrafficTrendProfileItem: {
+            /** @description Requested ASIN identity. */
+            identity: components["schemas"]["ProductTrafficIdentity"];
+            /**
+             * Rows
+             * @description One result per requested window, in request order.
+             */
+            rows: components["schemas"]["ProductTrafficTrendProfileRow"][];
+        };
+        /** ProductTrafficTrendProfileRequest */
+        ProductTrafficTrendProfileRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Asin
+             * @description Single ASIN; mutually exclusive with asins.
+             */
+            asin?: string;
+            /**
+             * Asins
+             * @description ASIN batch, up to 20; mutually exclusive with asin. Duplicates after normalization are rejected.
+             */
+            asins?: string[];
+            /**
+             * Detaillevel
+             * @description Response detail only; does not change the data query or billing. Default summary retains total, organic and advertising traffic and keyword coverage, component status, classifications, first/last values and change rates. full additionally includes placement/distribution breakdowns and all statistical evidence. Retry with detailLevel=full only when that extra evidence is needed; use product-traffic-trend for weekly raw data.
+             * @default summary
+             * @enum {string}
+             */
+            detailLevel: "summary" | "full";
+            /**
+             * Date
+             * Format: date
+             * @description Lookup date (YYYY-MM-DD). Returns the latest profile on or before this date; see resolvedDate.
+             */
+            date: string;
+            /**
+             * Windowperiods
+             * @description Defaults to [4]. windowPeriods must be [4] (one 4-week window). If a 4-week profile meets the task, retry with windowPeriods=[4] and the other arguments unchanged; otherwise report the supported scope.
+             * @default [
+             *       4
+             *     ]
+             */
+            windowPeriods: 4[];
+        };
+        /** ProductTrafficTrendProfileRow */
+        ProductTrafficTrendProfileRow: {
+            /** @description Context for this requested window. */
+            rowContext: components["schemas"]["ProductTrafficTrendProfileRowContext"];
+            /**
+             * Status
+             * @description Window-level availability at items[].rows[].status, not items[].status. Read this before trafficTrendProfile, then check each component's supported and calculationStatus; an ok row can contain unavailable components.
+             * @enum {string}
+             */
+            status: "ok" | "empty";
+            /**
+             * Emptyreason
+             * @description Empty-result reason; null when the profile is available.
+             */
+            emptyReason?: "asin_not_found" | "current_period_unavailable" | "profile_unavailable";
+            /**
+             * Traffictrendprofile
+             * @description ASIN traffic trend evidence selected by context.detailLevel: summary contains only core traffic and coverage; full contains all evidence. Null for an empty row; omitted summary detail is not missing data.
+             */
+            trafficTrendProfile?: components["schemas"]["ProductTrafficTrendProfile"] | components["schemas"]["ProductTrafficTrendProfileSummary"];
+        };
+        /** ProductTrafficTrendProfileRowContext */
+        ProductTrafficTrendProfileRowContext: {
+            /**
+             * Windowperiods
+             * @description Analysis-window period count.
+             * @constant
+             */
+            windowPeriods: 4;
+            /** @description Actual analysis boundaries; these may differ from the requested date. */
+            analysisWindow?: components["schemas"]["ProductTrafficAnalysisWindow"];
+        };
+        /**
+         * ProductTrafficTrendProfileSummary
+         * @description Presentation-only projection; omitted detail is not missing warehouse data.
+         */
+        ProductTrafficTrendProfileSummary: {
+            /** @description Total estimated traffic-score trend, not actual impression counts. */
+            asinTotalTraffic?: components["schemas"]["ProductTrafficImpressionSummary"];
+            /** @description Organic estimated traffic-score trend. */
+            organicTraffic?: components["schemas"]["ProductTrafficImpressionSummary"];
+            /** @description Advertising estimated traffic-score trend. */
+            adTraffic?: components["schemas"]["ProductTrafficImpressionSummary"];
+            /** @description Total, organic, advertising and first-three-page keyword coverage. */
+            termCoverage?: components["schemas"]["ProductTrafficTermCoverageSummary"];
+        };
+        /** ProductTrafficTrendRequest */
+        ProductTrafficTrendRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description Data period granularity. Only `week` is currently supported.
+             * @default week
+             * @constant
+             */
+            granularity: "week";
+            /**
+             * Asin
+             * @description Single ASIN; mutually exclusive with asins.
+             */
+            asin?: string;
+            /**
+             * Asins
+             * @description ASIN batch, up to 20; mutually exclusive with asin. Duplicates after normalization are rejected.
+             */
+            asins?: string[];
+            /**
+             * Datefrom
+             * Format: date
+             * @description Start date (YYYY-MM-DD). Only complete weekly periods contained in the requested range are returned.
+             */
+            dateFrom: string;
+            /**
+             * Dateto
+             * Format: date
+             * @description End date (YYYY-MM-DD); on or after dateFrom, containing at most 26 complete Sunday-Saturday weeks. Actual published coverage is reported in resolvedDateFrom and resolvedDateTo.
+             */
+            dateTo: string;
         };
         /**
          * PropertyValue
@@ -5359,11 +10342,11 @@ export interface components {
             period: "1m" | "3m" | "6m" | "1y" | "2y";
             /**
              * Marketplace
-             * @description Amazon marketplace code.
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
             /**
              * Categorypath
              * @description Category hierarchy from root. Example: ['Electronics', 'Computers']. Required when mode='category'.
@@ -5422,6 +10405,11 @@ export interface components {
              */
             dateEnd?: string | null;
             /**
+             * Mediatypes
+             * @description Media filter. The only value is 'image': keep reviews with at least one image. Omitted or empty means no media filter. About 8% of stored reviews carry images, and reviews added since 2026-08-30 currently carry none, so this filter mainly matches older reviews. Video filtering is not offered.
+             */
+            mediaTypes?: "image"[] | null;
+            /**
              * Sortby
              * @description Sort field: 'recent' (date), 'rating' (star rating), 'helpfulVoteCount' (vote count).
              * @default recent
@@ -5471,7 +10459,7 @@ export interface components {
         ReviewVideo: {
             /**
              * Url
-             * @description Video URL (typically MP4)
+             * @description Video URL (typically MP4) for realtime reviews. On /reviews/search this is the video's cover image URL, not a playable video address.
              */
             url: string;
             /**
@@ -5484,6 +10472,154 @@ export interface components {
              * @description Video duration in seconds
              */
             durationSeconds?: number | null;
+        };
+        /** SalesTrendContext */
+        SalesTrendContext: {
+            /**
+             * Requestedmonthfrom
+             * @description Window start actually used (server default when omitted).
+             */
+            requestedMonthFrom: string;
+            /**
+             * Requestedmonthto
+             * @description Window end actually used (server default when omitted).
+             */
+            requestedMonthTo: string;
+            /**
+             * Resolvedmonthfrom
+             * @description First window month with inCatalog=true; null when none.
+             */
+            resolvedMonthFrom: string | null;
+            /**
+             * Resolvedmonthto
+             * @description Last window month with inCatalog=true; null when none.
+             */
+            resolvedMonthTo: string | null;
+            /**
+             * Granularity
+             * @description One point per month.
+             * @default month
+             * @constant
+             */
+            granularity: "month";
+            /**
+             * Coveragefrom
+             * @description Earliest month with data (2026-02).
+             */
+            coverageFrom: string;
+            /**
+             * Latestmonth
+             * @description Newest month served — the endMonth default. Tells how far the data reaches.
+             */
+            latestMonth: string;
+            /**
+             * Currency
+             * @description Currency of every money field.
+             * @default USD
+             * @constant
+             */
+            currency: "USD";
+        };
+        /** SalesTrendPointItem */
+        SalesTrendPointItem: {
+            /**
+             * Month
+             * @description YYYY-MM.
+             */
+            month: string;
+            /**
+             * Pointkind
+             * @description monthEnd: finished month, taken from its last-day snapshot and no longer changes. monthToDate: current month, taken from the latest snapshot and updated daily. On the 1st and 2nd the just-finished month is still monthToDate while its month-end values are written.
+             * @enum {string}
+             */
+            pointKind: "monthEnd" | "monthToDate";
+            /**
+             * Incatalog
+             * @description Whether the product is in this point's snapshot. false = not collected yet, removed from the catalog, or removed mid-month without returning; every metric below is then null. inCatalog=true with a null monthlySalesFloor means in catalog but no sales floor.
+             */
+            inCatalog: boolean;
+            /**
+             * Parentasin
+             * @description Parent ASIN this month; equal to asin means no parent or unknown.
+             */
+            parentAsin?: string | null;
+            /**
+             * Inventorystatus
+             * @description Inventory status text on the snapshot day.
+             */
+            inventoryStatus?: string | null;
+            /**
+             * Price
+             * @description Price on the snapshot day, USD.
+             */
+            price?: number | null;
+            /**
+             * Avgprice30D
+             * @description 30-day average list price up to the snapshot day, USD. List price, not the average selling price; excludes coupons and promotions.
+             */
+            avgPrice30d?: number | null;
+            /**
+             * Monthlysalesfloor
+             * @description Last-30-day sales lower bound (units) from the page's 'N+ bought in past month'. Catalog snapshot basis: when the page showed no figure that day, the last known value is carried.
+             */
+            monthlySalesFloor?: number | null;
+            /**
+             * Monthlyrevenuefloor
+             * @description Last-30-day revenue lower bound, USD = sales floor × 30-day average price (current price when missing). Before coupons, promotions and refunds.
+             */
+            monthlyRevenueFloor?: number | null;
+            /**
+             * Parentmonthlysalesfloor
+             * @description Sum of sales floors of every variant under the same parent (units).
+             */
+            parentMonthlySalesFloor?: number | null;
+            /**
+             * Parentmonthlyrevenuefloor
+             * @description Sum of revenue floors of every variant under the same parent, USD.
+             */
+            parentMonthlyRevenueFloor?: number | null;
+            /**
+             * Variantcount
+             * @description Variants under the same parent on the snapshot day.
+             */
+            variantCount?: number | null;
+            /**
+             * Salesgrowthratemom
+             * @description Month over month: this month's sales floor ÷ the previous month's − 1 (0.25 = +25%). Null for monthToDate points, or when the previous month is not in catalog, null or ≤ 0. Different window from salesGrowthRate on /products/search.
+             */
+            salesGrowthRateMoM?: number | null;
+            /**
+             * Revenuegrowthratemom
+             * @description Month over month revenue floor ratio − 1; same null rules as salesGrowthRateMoM.
+             */
+            revenueGrowthRateMoM?: number | null;
+            /**
+             * Parentsalesgrowthratemom
+             * @description Month over month parent sales floor ratio − 1; same null rules as salesGrowthRateMoM.
+             */
+            parentSalesGrowthRateMoM?: number | null;
+            /**
+             * Parentrevenuegrowthratemom
+             * @description Month over month parent revenue floor ratio − 1; same null rules as salesGrowthRateMoM.
+             */
+            parentRevenueGrowthRateMoM?: number | null;
+        };
+        /**
+         * SearchScrapeOptions
+         * @description Per-result deep-scrape options for ``/webtools/search``.
+         *
+         *     Presence of this object on the search request triggers deep-scraping each
+         *     result page; omit (or pass ``null``) to get **SERP-only** results (CA's raw
+         *     search snippets — no per-page fetch, fast and cheap).
+         */
+        SearchScrapeOptions: {
+            /**
+             * Format
+             * @description Content format per scraped result. ``markdown`` (default) returns page-faithful Markdown; ``json`` returns the structured page summary (same shape as ``/webtools/scrape``'s ``json`` field — dispatch on ``page_type``). ``rawHtml`` is not supported on search.
+             * @default markdown
+             * @enum {string}
+             */
+            format: "markdown" | "json";
         };
         /**
          * StarRating
@@ -5529,11 +10665,6 @@ export interface components {
              * @description Star rating given by reviewer (1-5)
              */
             rating?: number | null;
-            /**
-             * Author
-             * @description Reviewer name
-             */
-            author?: string | null;
             /**
              * Date
              * @description Review date
@@ -5697,6 +10828,30 @@ export interface components {
             productCount: number;
         };
         /**
+         * TikTokContentChannelMix
+         * @description Content-form sale mix over the trailing 30 days (OpenAPI spec name without DTO suffix).
+         *
+         *     Only the video triplet is public; live / product-card sub-fields cannot be
+         *     attributed by the upstream model and stay hidden until that changes.
+         */
+        TikTokContentChannelMix: {
+            /**
+             * Videosales30D
+             * @description Units sold attributed to shoppable short videos over the trailing 30 days. Null means not yet provided (below the reliability bar or low sales volume), not zero.
+             */
+            videoSales30d?: number | null;
+            /**
+             * Videorevenue30D
+             * @description Revenue attributed to shoppable short videos over the trailing 30 days (USD), derived from videoSales30d and the product's average selling price. Null means not yet provided, not zero.
+             */
+            videoRevenue30d?: number | null;
+            /**
+             * Videorevenuerate30D
+             * @description Share of trailing-30-day sales transacted through shoppable short videos, as decimal (0-1). Unit-count basis; equals the revenue share under the product's single average-price base. May be present while videoSales30d is still null. Null means not yet provided, not zero.
+             */
+            videoRevenueRate30d?: number | null;
+        };
+        /**
          * TikTokCreator
          * @description TikTok creator response (OpenAPI spec name without DTO suffix).
          */
@@ -5716,6 +10871,11 @@ export interface components {
              * @description Creator display nickname.
              */
             nickname: string;
+            /**
+             * Avatarurl
+             * @description Creator avatar image URL from the latest profile snapshot, largest available variant.
+             */
+            avatarUrl?: string | null;
             /**
              * Profileurl
              * @description TikTok creator profile URL.
@@ -5847,10 +11007,30 @@ export interface components {
              */
             carryVideoInteraction30dRate?: number | null;
             /**
+             * Iscarryvideointeractionratereliable
+             * @description Whether carryVideoInteraction30dRate rests on a large enough 30-day play increment to be treated as reliable rather than small-sample noise.
+             */
+            isCarryVideoInteractionRateReliable?: boolean | null;
+            /**
              * Carryvideostatscoverage30Drate
              * @description Share of relation carry videos with usable 30-day play increment statistics.
              */
             carryVideoStatsCoverage30dRate?: number | null;
+            /**
+             * Carryvideolatestcreatetime
+             * @description Publish timestamp of the most recent known carry video.
+             */
+            carryVideoLatestCreateTime?: string | null;
+            /**
+             * Firstpromotedate
+             * @description Earliest known date this creator published a carry video.
+             */
+            firstPromoteDate?: string | null;
+            /**
+             * Lastpromotedate
+             * @description Most recent known date this creator published a carry video.
+             */
+            lastPromoteDate?: string | null;
             /**
              * Promotedproduct30Dcount
              * @description Number of products linked to newly published carry videos over the trailing 30 days.
@@ -5882,10 +11062,45 @@ export interface components {
              */
             relatedProductSaleAmt30d?: number | null;
             /**
+             * Carryvideosales30D
+             * @description Units sold over the trailing 30 days attributed to this creator's carry videos. Creator-attributed; counts only carry videos with at least 500 plays, so it is a lower bound. Null means not yet provided, not zero.
+             */
+            carryVideoSales30d?: number | null;
+            /**
+             * Carryvideorevenue30D
+             * @description GMV over the trailing 30 days attributed to this creator's carry videos, in USD. Creator-attributed; counts only carry videos with at least 500 plays, so it is a lower bound. Null means not yet provided, not zero.
+             */
+            carryVideoRevenue30d?: number | null;
+            /**
              * Relatedproducttopspuid30D
              * @description SPU ID of the related product with the highest overall GMV over the trailing 30 days.
              */
             relatedProductTopSpuId30d?: string | null;
+            /**
+             * Relatedproducttoptitle30D
+             * @description Title of the related product with the highest overall GMV over the trailing 30 days.
+             */
+            relatedProductTopTitle30d?: string | null;
+            /**
+             * Regionfollowerrank
+             * @description Follower-count rank among creators in the same region; 1 is the highest follower count.
+             */
+            regionFollowerRank?: number | null;
+            /**
+             * Regioncarryhotrank
+             * @description Carry-heat rank among creators in the same region, from recent carry activity; 1 is the hottest.
+             */
+            regionCarryHotRank?: number | null;
+            /**
+             * Customflowindex
+             * @description Composite traffic index summarizing recent reach signals; higher means stronger traffic.
+             */
+            customFlowIndex?: number | null;
+            /**
+             * Customcarryindex
+             * @description Composite carry index summarizing recent product-carrying performance; higher means stronger.
+             */
+            customCarryIndex?: number | null;
         };
         /**
          * TikTokCreatorSearchRequest
@@ -6013,6 +11228,26 @@ export interface components {
              */
             relatedProductSaleAmt30dMax?: number | null;
             /**
+             * Carryvideosales30Dmin
+             * @description Minimum units sold over the trailing 30 days attributed to this creator's carry videos. Creator-attributed lower bound; counts only carry videos with at least 500 plays.
+             */
+            carryVideoSales30dMin?: number | null;
+            /**
+             * Carryvideosales30Dmax
+             * @description Maximum units sold over the trailing 30 days attributed to this creator's carry videos. Creator-attributed lower bound; counts only carry videos with at least 500 plays.
+             */
+            carryVideoSales30dMax?: number | null;
+            /**
+             * Carryvideorevenue30Dmin
+             * @description Minimum GMV over the trailing 30 days attributed to this creator's carry videos, in USD. Creator-attributed lower bound; counts only carry videos with at least 500 plays.
+             */
+            carryVideoRevenue30dMin?: number | null;
+            /**
+             * Carryvideorevenue30Dmax
+             * @description Maximum GMV over the trailing 30 days attributed to this creator's carry videos, in USD. Creator-attributed lower bound; counts only carry videos with at least 500 plays.
+             */
+            carryVideoRevenue30dMax?: number | null;
+            /**
              * Page
              * @description 1-indexed page number.
              * @default 1
@@ -6026,11 +11261,11 @@ export interface components {
             pageSize: number;
             /**
              * Sortby
-             * @description Sort field for creator search.
+             * @description Sort field for creator search, e.g. carryVideoRevenue30d / carryVideoSales30d for creator-attributed carry performance. Default relatedProductSaleAmt30d.
              * @default relatedProductSaleAmt30d
              * @enum {string}
              */
-            sortBy: "followerCount" | "follower30dDeltaCount" | "carryVideo30dCount" | "carryVideoPlay30dIncrementCount" | "carryVideoInteraction30dRate" | "promotedProduct30dCount" | "relatedProductSaleCnt30d" | "relatedProductSaleAmt30d";
+            sortBy: "followerCount" | "follower30dDeltaCount" | "carryVideo30dCount" | "carryVideoPlay30dIncrementCount" | "carryVideoInteraction30dRate" | "promotedProduct30dCount" | "relatedProductSaleCnt30d" | "relatedProductSaleAmt30d" | "carryVideoSales30d" | "carryVideoRevenue30d";
             /**
              * Sortorder
              * @description Sort direction. Default desc.
@@ -6283,6 +11518,8 @@ export interface components {
              * @description TikTok shop has top-tier certification. This is a SHOP-LEVEL credential, NOT brand ownership — a certified shop may resell other brands' products.
              */
             isShopCertified?: boolean | null;
+            /** @description Sales attributed to shoppable short videos over the trailing 30 days (units / revenue / share). Null means not yet provided for this product, not zero. Live and product-card attribution is not currently provided. */
+            contentChannelMix?: components["schemas"]["TikTokContentChannelMix"] | null;
             /** @description Distinct creators who promoted this product (3d / 30d / total). */
             relateCreator?: components["schemas"]["TikTokRelateCounts"] | null;
             /** @description Distinct videos promoting this product (3d / 30d / total). */
@@ -6494,6 +11731,11 @@ export interface components {
              * @description All product image URLs.
              */
             images?: string[] | null;
+            /**
+             * Categoryid
+             * @description Leaf category ID for this SPU.
+             */
+            categoryId?: string | null;
             /**
              * Categorypath
              * @description Category path from root to leaf, e.g. ['Electronics', 'Audio'].
@@ -6866,6 +12108,291 @@ export interface components {
             inventory?: components["schemas"]["RealtimeInventory"] | null;
         };
         /**
+         * TikTokRealtimeVideo
+         * @description Realtime TikTok video detail (OpenAPI spec name without DTO suffix).
+         */
+        TikTokRealtimeVideo: {
+            /**
+             * Videoid
+             * @description TikTok video ID.
+             */
+            videoId: string;
+            /**
+             * Canonicalurl
+             * @description Canonical video page URL.
+             */
+            canonicalUrl?: string | null;
+            /**
+             * Title
+             * @description Video title.
+             */
+            title?: string | null;
+            /**
+             * Description
+             * @description Video description text.
+             */
+            description?: string | null;
+            /**
+             * Createtime
+             * @description Publish time (unix seconds).
+             */
+            createTime?: number | null;
+            /**
+             * Durationms
+             * @description Video duration in milliseconds.
+             */
+            durationMs?: number | null;
+            /**
+             * Isad
+             * @description True when flagged as an ad.
+             */
+            isAd?: boolean | null;
+            /**
+             * Isaigc
+             * @description True when flagged as AI-generated content.
+             */
+            isAigc?: boolean | null;
+            /**
+             * Width
+             * @description Video width in pixels.
+             */
+            width?: number | null;
+            /**
+             * Height
+             * @description Video height in pixels.
+             */
+            height?: number | null;
+            /**
+             * Cover
+             * @description Cover image URL.
+             */
+            cover?: string | null;
+            /**
+             * Origincover
+             * @description Original-frame cover image URL.
+             */
+            originCover?: string | null;
+            /**
+             * Dynamiccover
+             * @description Animated cover URL.
+             */
+            dynamicCover?: string | null;
+            /**
+             * Downloadurl
+             * @description Video download / playback URL.
+             */
+            downloadUrl?: string | null;
+            /**
+             * Keywords
+             * @description Keywords (challenge titles) on the video.
+             */
+            keywords?: string[] | null;
+            /** @description The video's author. */
+            creator?: components["schemas"]["TikTokRealtimeVideoCreator"] | null;
+            /** @description The video's soundtrack. */
+            music?: components["schemas"]["TikTokRealtimeVideoMusic"] | null;
+            /** @description Engagement counters. */
+            stats?: components["schemas"]["TikTokRealtimeVideoStats"] | null;
+            /**
+             * Productanchors
+             * @description Shopping anchors (linked products) on the video.
+             */
+            productAnchors?: components["schemas"]["TikTokRealtimeVideoProductAnchor"][] | null;
+        };
+        /**
+         * TikTokRealtimeVideoAnchoredProduct
+         * @description A product linked from the video's shopping anchor.
+         *
+         *     No price field: upstream anchor extraction yields a systematic 0 for it, so
+         *     it is withheld until the source is fixed (use /tiktok/realtime/product with
+         *     ``productId`` for the authoritative current price).
+         */
+        TikTokRealtimeVideoAnchoredProduct: {
+            /**
+             * Productid
+             * @description TikTok Shop product (SPU) identifier, e.g. '1729456281219469588'.
+             */
+            productId?: string | null;
+            /**
+             * Title
+             * @description Product title as shown on the anchor.
+             */
+            title?: string | null;
+            /**
+             * Shopid
+             * @description TikTok shop / seller identifier.
+             */
+            shopId?: string | null;
+            /**
+             * Coverurl
+             * @description Product cover image URL.
+             */
+            coverUrl?: string | null;
+            /**
+             * Detailurl
+             * @description Product detail page URL.
+             */
+            detailUrl?: string | null;
+        };
+        /**
+         * TikTokRealtimeVideoCreator
+         * @description The video's author (creator account).
+         */
+        TikTokRealtimeVideoCreator: {
+            /**
+             * Creatorid
+             * @description Creator's TikTok user ID.
+             */
+            creatorId?: string | null;
+            /**
+             * Secuid
+             * @description Creator's stable secUid.
+             */
+            secUid?: string | null;
+            /**
+             * Uniqueid
+             * @description Creator's @handle.
+             */
+            uniqueId?: string | null;
+            /**
+             * Nickname
+             * @description Creator display name.
+             */
+            nickname?: string | null;
+            /**
+             * Verified
+             * @description True for verified accounts.
+             */
+            verified?: boolean | null;
+            /**
+             * Ttseller
+             * @description True if the creator is a TikTok Shop seller.
+             */
+            ttSeller?: boolean | null;
+            /**
+             * Followercount
+             * @description Follower count.
+             */
+            followerCount?: number | null;
+            /**
+             * Followingcount
+             * @description Accounts the creator follows.
+             */
+            followingCount?: number | null;
+            /**
+             * Videocount
+             * @description Published video count.
+             */
+            videoCount?: number | null;
+            /**
+             * Heartcount
+             * @description Total likes across the creator's videos.
+             */
+            heartCount?: number | null;
+            /**
+             * Avatar
+             * @description Avatar image URL (highest available resolution).
+             */
+            avatar?: string | null;
+        };
+        /**
+         * TikTokRealtimeVideoMusic
+         * @description The video's soundtrack.
+         */
+        TikTokRealtimeVideoMusic: {
+            /**
+             * Musicid
+             * @description Track identifier.
+             */
+            musicId?: string | null;
+            /**
+             * Title
+             * @description Track title.
+             */
+            title?: string | null;
+            /**
+             * Authorname
+             * @description Track author name.
+             */
+            authorName?: string | null;
+            /**
+             * Duration
+             * @description Track duration in seconds (unlike the video's durationMs).
+             */
+            duration?: number | null;
+            /**
+             * Iscommercemusic
+             * @description True for commerce-licensed music.
+             */
+            isCommerceMusic?: boolean | null;
+        };
+        /**
+         * TikTokRealtimeVideoProductAnchor
+         * @description One shopping anchor attached to the video.
+         */
+        TikTokRealtimeVideoProductAnchor: {
+            /**
+             * Anchortype
+             * @description Anchor type code.
+             */
+            anchorType?: number | null;
+            /**
+             * Products
+             * @description Products carried by this anchor.
+             */
+            products?: components["schemas"]["TikTokRealtimeVideoAnchoredProduct"][];
+        };
+        /**
+         * TikTokRealtimeVideoQuery
+         * @description Strict OpenAPI V2 request wrapper for /tiktok/realtime/video.
+         *
+         *     Applies extra='forbid' so the public V2 endpoint rejects unknown fields,
+         *     plus the TikTok-only URL validation.
+         */
+        TikTokRealtimeVideoQuery: {
+            /**
+             * Url
+             * @description TikTok video page URL, e.g. https://www.tiktok.com/@handle/video/7300000000000000001
+             */
+            url: string;
+        };
+        /**
+         * TikTokRealtimeVideoStats
+         * @description Engagement counters at collection time.
+         */
+        TikTokRealtimeVideoStats: {
+            /**
+             * Playcount
+             * @description Play (view) count.
+             */
+            playCount?: number | null;
+            /**
+             * Diggcount
+             * @description Like count.
+             */
+            diggCount?: number | null;
+            /**
+             * Commentcount
+             * @description Comment count.
+             */
+            commentCount?: number | null;
+            /**
+             * Sharecount
+             * @description Share count.
+             */
+            shareCount?: number | null;
+            /**
+             * Collectcount
+             * @description Save / collect count.
+             */
+            collectCount?: number | null;
+            /**
+             * Repostcount
+             * @description On-platform repost count.
+             */
+            repostCount?: number | null;
+        };
+        /**
          * TikTokRelateCounts
          * @description Distinct counts over 3d / 30d / total windows (OpenAPI spec name without DTO suffix).
          */
@@ -6934,9 +12461,14 @@ export interface components {
             url?: string | null;
             /**
              * Coverimage
-             * @description Video cover image URL.
+             * @description Video cover image URL. CDN links are time-limited (see the ``x-expires`` query parameter); expired links are refreshed on demand at query time.
              */
             coverImage?: string | null;
+            /**
+             * Downloadurl
+             * @description Video download / playback URL, collected on demand at query time. Short-lived — use promptly after retrieval. Omitted from the response when the video is unavailable or restricted, or the on-demand collection did not return it.
+             */
+            downloadUrl?: string | null;
             /**
              * Title
              * @description Video title / caption text.
@@ -7022,6 +12554,11 @@ export interface components {
              * @description TikTok Shop product ID of the primary anchored product; null when the video has no shoppable anchor. Cross-references /openapi/v2/tiktok/products/search.
              */
             primaryProductId?: string | null;
+            /**
+             * Isaigc
+             * @description AI-generated-content flag: true=AIGC, false=confirmed non-AIGC. Omitted from the response when the video's AIGC status is unknown.
+             */
+            isAigc?: boolean | null;
         };
         /**
          * TikTokVideoSearchRequest
@@ -7119,6 +12656,11 @@ export interface components {
              */
             hasProduct?: boolean | null;
             /**
+             * Isaigc
+             * @description Filter by AI-generated-content status. true = only AIGC videos; false = only confirmed non-AIGC (unknown excluded). Omit to return all. Unknown status is not directly filterable — a result with no isAigc field has unknown status.
+             */
+            isAigc?: boolean | null;
+            /**
              * Categoryid
              * @description TikTok category ID — matches videos whose primary product anchor category has this id at any of the 7 hierarchy levels.
              */
@@ -7146,7 +12688,7 @@ export interface components {
             page: number;
             /**
              * Pagesize
-             * @description Page size, 1–100. Default 20.
+             * @description Page size, 1–100; values above 20 are served as 20. Default 20.
              * @default 20
              */
             pageSize: number;
@@ -7206,11 +12748,19 @@ export interface components {
          *     detect the CONTRACT track — no separate `tier` field is exposed; the
          *     Stripe-side subscription tier is a billing-implementation detail, not a
          *     surface the balance API needs to carry (mirrors OpenAI / DeepSeek's
-         *     `/user/balance` minimalism). v1 deliberately omits `granted_balance` /
-         *     `topped_up_balance` split (no self-serve top-up path yet) — both can be
-         *     added back as backwards-compatible fields if Stripe self-serve ships.
+         *     `/user/balance` minimalism). With self-serve top-up shipped, the
+         *     granted/topped_up split fields (inherited from `UsdBalanceSplit`) are
+         *     back as the backwards-compatible additions ADR-0005 reserved.
          */
         UsdAccountBalance: {
+            /** Grantedbalancenano */
+            grantedBalanceNano: number;
+            /** Grantedbalance */
+            grantedBalance: string;
+            /** Toppedupbalancenano */
+            toppedUpBalanceNano: number;
+            /** Toppedupbalance */
+            toppedUpBalance: string;
             /**
              * Billingmode
              * @default usd
@@ -7236,6 +12786,35 @@ export interface components {
              */
             balance: string;
             pricing: components["schemas"]["UsdPricing"];
+            /** Estimatedavailablenano */
+            estimatedAvailableNano?: string | null;
+            /** Estimatedavailable */
+            estimatedAvailable?: string | null;
+            /** Pendingestimatednano */
+            pendingEstimatedNano?: string | null;
+            /** Estimateasof */
+            estimateAsOf?: string | null;
+        };
+        /**
+         * UsdBalanceSplit
+         * @description granted/topped_up decomposition of a USD wallet (topup spec §4.6).
+         *
+         *     The four backwards-compatible fields ADR-0005's post-implementation
+         *     cleanup reserved for when self-serve top-up ships: `granted` is the
+         *     ops-grant / promo-bonus side, `topped_up` is self-serve Stripe money.
+         *     Values are display-clamped at zero (negative sides are an ops signal).
+         *     Doubles as the `usd` block attached to the credits view for a credits
+         *     customer who owns a wallet.
+         */
+        UsdBalanceSplit: {
+            /** Grantedbalancenano */
+            grantedBalanceNano: number;
+            /** Grantedbalance */
+            grantedBalance: string;
+            /** Toppedupbalancenano */
+            toppedUpBalanceNano: number;
+            /** Toppedupbalance */
+            toppedUpBalance: string;
         };
         /**
          * UsdPricing
@@ -7408,171 +12987,447 @@ export interface components {
             /** @description Provider error on `status=failed` — a `{code, message}` object; `null` otherwise. See VideoError for its fields. */
             error?: components["schemas"]["VideoError"] | null;
         };
-        /**
-         * MarketSearchRequest
-         * @description Request schema for /v2/markets/search - flat design for better API usability.
-         */
-        app__api__openapi__schemas__markets__MarketSearchRequest: {
+        /** VocTrend */
+        VocTrend: {
+            /**
+             * Mode
+             * @description Query mode used.
+             * @enum {string}
+             */
+            mode: "asin" | "category";
+            /**
+             * Asins
+             * @description ASINs requested. Present only when mode='asin'.
+             */
+            asins?: string[] | null;
+            /**
+             * Categorypath
+             * @description Category hierarchy from root; empty when mode='asin'.
+             */
+            categoryPath?: string[];
+            context: components["schemas"]["VocTrendContext"];
+            /**
+             * Points
+             * @description One point per period of the window, ascending, never skipping a period.
+             */
+            points: components["schemas"]["VocTrendPointItem"][];
+        };
+        /** VocTrendContext */
+        VocTrendContext: {
             /**
              * Marketplace
-             * @description Amazon marketplace code.
+             * @description Marketplace served.
              * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Site
+             * @description Site the reviews belong to.
+             * @default amazon.com
+             * @constant
+             */
+            site: "amazon.com";
+            /**
+             * Requesteddatefrom
+             * @description Window start actually used, after the server default and alignment to whole periods.
+             */
+            requestedDateFrom: string;
+            /**
+             * Requesteddateto
+             * @description Window end actually used, aligned.
+             */
+            requestedDateTo: string;
+            /**
+             * Resolveddatefrom
+             * @description Start of the first period with reviews; null when none has any.
+             */
+            resolvedDateFrom: string | null;
+            /**
+             * Resolveddateto
+             * @description End of the last period with reviews; null when none has any.
+             */
+            resolvedDateTo: string | null;
+            /**
+             * Granularity
+             * @description Period length of each point.
              * @enum {string}
              */
-            marketplace: "US" | "UK";
+            granularity: "week" | "month";
             /**
-             * Daterange
-             * @description Aggregation window for metrics like monthly sales, revenue, and rating count. '30d' (default) — last 30 days. 'YYYY-MM' — that calendar month, e.g. '2026-04'. Available months: '2026-02' up to the most recent completed month.
-             * @default 30d
+             * Coveragefrom
+             * @description Earliest date served (2024-01-01); earlier windows are rejected.
              */
-            dateRange: string;
-            /** @description Filter by category name keyword (matches any level in category hierarchy, e.g., 'Electronics' or 'Laptops') */
-            categoryKeyword?: string;
+            coverageFrom: string;
             /**
-             * Sampletype
-             * @description Sampling method for market metrics: 'bySale100' = analyze top 100 products by sales volume, 'byBsr100' = top 100 by BSR rank, 'avg' = category-wide average
-             * @default bySale100
-             * @enum {string}
+             * Snapshotdate
+             * @description Partition date of the tag statistics actually read — it can trail today by several days. Check it before reading a low final point as a real drop. Null when no period in the window has reviews or no requested ASIN has a resolvable parent; it then cannot tell whether the statistics lag.
              */
-            sampleType: "bySale100" | "byBsr100" | "avg";
-            /** @description Category hierarchy from root. Example: ['Electronics', 'Computers', 'Laptops']. */
-            categoryPath?: string[];
+            snapshotDate: string | null;
             /**
-             * Newproductperiod
-             * @description Define 'new product' as listed within X months: '1', '3', '6', or '12'. Affects sampleNewSku* response fields
-             * @default 3
-             * @enum {string}
+             * Reviewcount
+             * @description Sum of every point's reviewCount; equals /voc/analysis reviewCount for the same window.
              */
-            newProductPeriod: "1" | "3" | "6" | "12";
+            reviewCount: number;
+            /**
+             * Resolvedasins
+             * @description ASINs that took part (mode='asin'). A requested ASIN missing here had no resolvable parent.
+             */
+            resolvedAsins: string[] | null;
+            /**
+             * Resolvedparentcount
+             * @description Distinct parents behind resolvedAsins (mode='asin'). Lower than the ASIN count means some ASINs share a parent and were counted once.
+             */
+            resolvedParentCount: number | null;
+            /**
+             * Labeltypes
+             * @description Tag dimensions returned.
+             */
+            labelTypes: ("scenarios" | "issues" | "positives" | "improvements" | "buyingFactors" | "painPoints" | "keywords" | "userProfiles" | "usageTimes" | "usageLocations" | "behaviors")[];
             /**
              * Topn
-             * @description Number of top products to analyze: '3', '5', '10', or '20'. Affects top* response fields (e.g., topAvgMonthlySales)
+             * @description Tags returned per dimension.
+             */
+            topN: number;
+            /**
+             * Lowsamplethreshold
+             * @description Points with fewer reviews than this carry lowSample=true.
+             */
+            lowSampleThreshold: number;
+            /**
+             * Lowsampleperiodcount
+             * @description Points with reviews but fewer than lowSampleThreshold. Compare with the number of points to judge whether the series is usable.
+             */
+            lowSamplePeriodCount: number;
+        };
+        /** VocTrendInsight */
+        VocTrendInsight: {
+            /**
+             * Labeltype
+             * @description Insight dimension.
+             * @enum {string}
+             */
+            labelType: "scenarios" | "issues" | "positives" | "improvements" | "buyingFactors" | "painPoints" | "keywords" | "userProfiles" | "usageTimes" | "usageLocations" | "behaviors";
+            /**
+             * Element
+             * @description Tag text as produced by the tagging model. There is no canonical dictionary: periods are matched by exact text, so differently worded synonyms are separate tags.
+             */
+            element: string;
+            /**
+             * Count
+             * @description Reviews mentioning this tag in the period; 0 when the period has none. The statistics keep at most 100 tags per dimension per period, so for a rare tag 0 can also mean a single mention that fell outside that cut.
+             */
+            count: number;
+            /**
+             * Avgrating
+             * @description Average rating of the reviews mentioning this tag; null when count=0.
+             */
+            avgRating?: number | null;
+            /**
+             * Reviewrate
+             * @description Share of the period's reviews mentioning this tag as decimal (0.25 = 25%). The denominator is the period's reviewCount, not the dimension's tag total, so one dimension's rates can sum above 1.
+             */
+            reviewRate: number;
+        };
+        /** VocTrendPointItem */
+        VocTrendPointItem: {
+            /**
+             * Periodstartdate
+             * @description First day of the period (month start, or Monday UTC).
+             */
+            periodStartDate: string;
+            /**
+             * Periodenddate
+             * @description Last day of the period (month end, or Sunday).
+             */
+            periodEndDate: string;
+            /**
+             * Reviewcount
+             * @description Reviews that were tagged and entered the statistics for this period — the sample size, not the period's total review volume. Coverage of reviews rises year over year, so do not read a rising reviewCount as growing review volume. 0 when the period has no such review.
+             */
+            reviewCount: number;
+            /**
+             * Lowsample
+             * @description True when reviewCount is below context.lowSampleThreshold (including 0). Values are still reported, but rates carry no statistical weight.
+             */
+            lowSample: boolean;
+            /**
+             * Avgrating
+             * @description Average star rating in the period (4 decimals); null when reviewCount=0. Computed from tagged reviews only, which runs about 0.01 star below the average over all reviews; do not read a period-to-period change of around 0.01 star as a real change.
+             */
+            avgRating?: number | null;
+            /**
+             * Ratingdistribution
+             * @description Distribution of ratings by star level. Keys are 1-5, values are review counts. Null when reviewCount=0.
+             */
+            ratingDistribution?: {
+                [key: string]: number;
+            } | null;
+            /** @description Sentiment counts and rates. Unlike /voc/analysis (rates only) the counts are included so periods can be summed and reconciled. Null when reviewCount=0. */
+            sentimentDistribution?: components["schemas"]["VocTrendSentiment"] | null;
+            /**
+             * Insights
+             * @description The window's top tags with this period's count and rate, in the order of labelTypes then whole-window count. The same tags appear in every point with reviews; empty when reviewCount=0.
+             */
+            insights: components["schemas"]["VocTrendInsight"][];
+        };
+        /**
+         * VocTrendRequest
+         * @description Request for a VoC trend over one ASIN set or one category.
+         */
+        VocTrendRequest: {
+            /**
+             * Mode
+             * @description 'asin' for an ASIN set, 'category' for a category path. Same meaning as on /voc/analysis.
+             * @enum {string}
+             */
+            mode: "asin" | "category";
+            /**
+             * Asins
+             * @description ASINs (max 100, required when mode='asin'), each in canonical form ^[A-Z0-9]{10}$ — lowercase, spaces or a site suffix are rejected with asin_must_be_normalized. The trend covers every review of the parents these ASINs belong to, not only these child ASINs; several ASINs of one parent count once. ASINs whose parent cannot be resolved are skipped — see context.resolvedAsins.
+             */
+            asins?: string[] | null;
+            /**
+             * Categorypath
+             * @description Category hierarchy from root, up to 10 levels (required when mode='category'). Example: ['Electronics', 'Computers'].
+             */
+            categoryPath?: string[] | null;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Granularity
+             * @description One point per week (Monday to Sunday, UTC) or per month. A window holds at most 25 months or 52 weeks, so 'week' works with period up to '6m'; for a longer weekly window give dateFrom/dateTo (max 52 weeks) or use 'month'. Category mode supports 'month' only; 'week' is rejected with granularity_not_supported_for_category.
+             * @default month
+             * @enum {string}
+             */
+            granularity: "week" | "month";
+            /**
+             * Period
+             * @description Relative window, default '6m'. Resolved to whole months exactly as /voc/analysis does, so the same period gives both endpoints the same window ('2y' is 25 whole months). With granularity='week' only '1m', '3m' and '6m' fit the 52-week limit; '1y' and '2y' are rejected with period_limit_exceeded. Ignored when dateFrom and dateTo are given.
+             */
+            period?: ("1m" | "3m" | "6m" | "1y" | "2y") | null;
+            /**
+             * Datefrom
+             * @description Window start, YYYY-MM-DD; must be given together with dateTo. The window is widened outward to whole periods and may not start before 2024-01-01 (date_before_coverage).
+             */
+            dateFrom?: string | null;
+            /**
+             * Dateto
+             * @description Window end, YYYY-MM-DD; must be given together with dateFrom. It may lie in the future: periods after today are returned as empty points.
+             */
+            dateTo?: string | null;
+            /**
+             * Labeltypes
+             * @description Tag dimensions to return, no repeats. Defaults to ['painPoints', 'scenarios', 'buyingFactors'].
+             */
+            labelTypes?: ("scenarios" | "issues" | "positives" | "improvements" | "buyingFactors" | "painPoints" | "keywords" | "userProfiles" | "usageTimes" | "usageLocations" | "behaviors")[] | null;
+            /**
+             * Topn
+             * @description Tags returned per dimension (1-30), chosen by their count over the whole window so every point reports the same tag set.
+             * @default 10
+             */
+            topN: number;
+        };
+        /** VocTrendSentiment */
+        VocTrendSentiment: {
+            positive: components["schemas"]["VocTrendSentimentBucket"];
+            neutral: components["schemas"]["VocTrendSentimentBucket"];
+            negative: components["schemas"]["VocTrendSentimentBucket"];
+        };
+        /** VocTrendSentimentBucket */
+        VocTrendSentimentBucket: {
+            /**
+             * Count
+             * @description Reviews with this sentiment in the period.
+             */
+            count: number;
+            /**
+             * Rate
+             * @description count / the period's reviewCount as decimal (0.60 = 60%).
+             */
+            rate: number;
+        };
+        /**
+         * WatchlistAsinRequest
+         * @description Request carrying a single ASIN (add / remove).
+         */
+        WatchlistAsinRequest: {
+            /**
+             * Asin
+             * @description Amazon Standard Identification Number — 10-character product id, e.g. 'B07FR2V8SH'.
+             */
+            asin: string;
+        };
+        /**
+         * WatchlistItemDTO
+         * @description One watched ASIN.
+         */
+        WatchlistItemDTO: {
+            /**
+             * Asin
+             * @description Watched ASIN.
+             */
+            asin: string;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code, e.g. 'US'.
+             * @default US
+             */
+            marketplace: string;
+            /**
+             * Createdat
+             * @description When the ASIN was added, ISO 8601 UTC, e.g. '2026-08-05T00:00:00Z'.
+             */
+            createdAt?: string | null;
+        };
+        /**
+         * WatchlistListDTO
+         * @description The user's watchlist, newest first.
+         */
+        WatchlistListDTO: {
+            /**
+             * Items
+             * @description Watched ASINs, newest first.
+             */
+            items: components["schemas"]["WatchlistItemDTO"][];
+            /**
+             * Total
+             * @description Number of watched ASINs.
+             */
+            total: number;
+        };
+        /**
+         * WatchlistListRequest
+         * @description Empty request body for the list endpoint (kept as POST for channel consistency).
+         */
+        WatchlistListRequest: Record<string, never>;
+        /**
+         * WatchlistMutationDTO
+         * @description Result of an add/remove call.
+         */
+        WatchlistMutationDTO: {
+            /**
+             * Asin
+             * @description The ASIN the operation applied to (normalized to uppercase).
+             */
+            asin: string;
+            /**
+             * Changed
+             * @description True if the call changed the list; false for an idempotent no-op (already watched / not watched).
+             */
+            changed: boolean;
+        };
+        /**
+         * MarketSearchRequest
+         * @description Agent-facing market search request shared by OpenAPI and MCP.
+         */
+        app__api__openapi__market_search_request_models_v2__MarketSearchRequest: {
+            /**
+             * Marketplace
+             * @description Amazon marketplace; currently US only.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Date
+             * @description Snapshot lookup date (YYYY-MM-DD); defaults to latest available.
+             */
+            date?: string | null;
+            /** @description Choose IDs, a complete path, or an exact name; omit all locators to search all markets. */
+            category?: components["schemas"]["MarketSearchCategory"];
+            /**
+             * Sampletype
+             * @description Select Top 100 by monthly unit sales or revenue.
+             * @default unitSalesTop100
+             * @enum {string}
+             */
+            sampleType: "unitSalesTop100" | "revenueTop100";
+            /**
+             * Topn
+             * @description Top group size used by generic Top N filters. The response always returns all four groups.
              * @default 10
              * @enum {string}
              */
             topN: "3" | "5" | "10" | "20";
-            /** @description Minimum sample average monthly sales. Units sold. Example: 100. */
-            sampleAvgMonthlySalesMin?: number;
-            /** @description Maximum sample average monthly sales. Units sold. */
-            sampleAvgMonthlySalesMax?: number;
-            /** @description Minimum sample average monthly revenue. Example: 5000.00. */
-            sampleAvgMonthlyRevenueMin?: number;
-            /** @description Maximum sample average monthly revenue. */
-            sampleAvgMonthlyRevenueMax?: number;
-            /** @description Minimum sample average price. Example: 10.00. */
-            sampleAvgPriceMin?: number;
-            /** @description Maximum sample average price. */
-            sampleAvgPriceMax?: number;
-            /** @description Minimum sample average main-category BSR (lower = better). */
-            sampleAvgBsrMin?: number;
-            /** @description Maximum sample average main-category BSR. */
-            sampleAvgBsrMax?: number;
-            /** @description Minimum sample average star rating (0.0–5.0). */
-            sampleAvgRatingMin?: number;
-            /** @description Maximum sample average star rating (0.0–5.0). */
-            sampleAvgRatingMax?: number;
-            /** @description Minimum sample average rating count per product. */
-            sampleAvgRatingCountMin?: number;
-            /** @description Maximum sample average rating count per product. */
-            sampleAvgRatingCountMax?: number;
-            /** @description Minimum total SKU count in category. */
-            totalSkuCountMin?: number;
-            /** @description Maximum total SKU count in category. */
-            totalSkuCountMax?: number;
-            /** @description Minimum sample SKU count. */
-            sampleSkuCountMin?: number;
-            /** @description Maximum sample SKU count. */
-            sampleSkuCountMax?: number;
-            /** @description Minimum Top N average monthly sales. Units sold. */
-            topAvgMonthlySalesMin?: number;
-            /** @description Maximum Top N average monthly sales. */
-            topAvgMonthlySalesMax?: number;
-            /** @description Minimum Top N average monthly revenue. */
-            topAvgMonthlyRevenueMin?: number;
-            /** @description Maximum Top N average monthly revenue. */
-            topAvgMonthlyRevenueMax?: number;
-            /** @description Minimum Top N sales share as decimal. Example: 0.5 = 50%. */
-            topSalesRateMin?: number;
-            /** @description Maximum Top N sales share as decimal. */
-            topSalesRateMax?: number;
-            /** @description Minimum Top N brand concentration ratio as decimal. */
-            topBrandSalesRateMin?: number;
-            /** @description Maximum Top N brand concentration ratio as decimal. */
-            topBrandSalesRateMax?: number;
-            /** @description Minimum Top N seller concentration ratio as decimal. */
-            topSellerSalesRateMin?: number;
-            /** @description Maximum Top N seller concentration ratio as decimal. */
-            topSellerSalesRateMax?: number;
-            /** @description Minimum sample unique brand count. */
-            sampleBrandCountMin?: number;
-            /** @description Maximum sample unique brand count. */
-            sampleBrandCountMax?: number;
-            /** @description Minimum sample unique seller count. */
-            sampleSellerCountMin?: number;
-            /** @description Maximum sample unique seller count. */
-            sampleSellerCountMax?: number;
-            /** @description Minimum sample FBA product rate as decimal. */
-            sampleFbaRateMin?: number;
-            /** @description Maximum sample FBA product rate as decimal. */
-            sampleFbaRateMax?: number;
-            /** @description Minimum sample Amazon-sold product rate as decimal. */
-            sampleAmzRateMin?: number;
-            /** @description Maximum sample Amazon-sold product rate as decimal. */
-            sampleAmzRateMax?: number;
-            /** @description Minimum sample new product count. */
-            sampleNewSkuCountMin?: number;
-            /** @description Maximum sample new product count. */
-            sampleNewSkuCountMax?: number;
-            /** @description Minimum sample new product rate as decimal. */
-            sampleNewSkuRateMin?: number;
-            /** @description Maximum sample new product rate as decimal. */
-            sampleNewSkuRateMax?: number;
-            /** @description Minimum new product average monthly sales. */
-            sampleNewSkuAvgMonthlySalesMin?: number;
-            /** @description Maximum new product average monthly sales. */
-            sampleNewSkuAvgMonthlySalesMax?: number;
-            /** @description Minimum new product average price. */
-            sampleNewSkuAvgPriceMin?: number;
-            /** @description Maximum new product average price. */
-            sampleNewSkuAvgPriceMax?: number;
-            /** @description Minimum sample average package weight in oz. */
-            sampleAvgPackageWeightMin?: number;
-            /** @description Maximum sample average package weight in oz. */
-            sampleAvgPackageWeightMax?: number;
-            /** @description Minimum sample average package volume in in³. */
-            sampleAvgPackageVolumeMin?: number;
-            /** @description Maximum sample average package volume in in³. */
-            sampleAvgPackageVolumeMax?: number;
-            /** @description Minimum Top N average main-category BSR. */
-            topAvgBsrMin?: number;
-            /** @description Maximum Top N average main-category BSR. */
-            topAvgBsrMax?: number;
+            /**
+             * Newproductperiod
+             * @description New-product window used by generic new-product filters and sorting. The response always returns all four windows. For a window of N months, a product is new when its business launch date is later than the snapshot date minus N calendar months and no later than the snapshot date. Products without a business launch date are not counted as new, but remain in the product-count denominator.
+             * @default 3
+             * @enum {string}
+             */
+            newProductPeriod: "1" | "3" | "6" | "12";
+            /** @description Market metric conditions, applied before pagination. */
+            filters?: components["schemas"]["MarketSearchFilters"];
+            /**
+             * Sortby
+             * @description Market metric used for sorting.
+             * @default sampleMonthlyRevenue
+             * @enum {string}
+             */
+            sortBy: "totalMonthlySales" | "totalMonthlyRevenue" | "sampleMonthlySales" | "sampleMonthlyRevenue" | "sampleAvgMonthlySales" | "sampleAvgMonthlyRevenue" | "totalSkuCount" | "sampleSkuCount" | "sampleAvgPrice" | "sampleTotalMonthlySales" | "sampleAvgBsr" | "sampleAvgRating" | "sampleAvgRatingCount" | "sampleBrandCount" | "sampleSellerCount" | "sampleFbaRate" | "sampleNewSkuRate";
+            /**
+             * Sortorder
+             * @description Sort direction.
+             * @default desc
+             * @enum {string}
+             */
+            sortOrder: "asc" | "desc";
             /**
              * Page
-             * @description Page number
+             * @description Page number, starting at 1.
              * @default 1
              */
             page: number;
             /**
              * Pagesize
-             * @description Page size
+             * @description Markets per page.
              * @default 20
              */
             pageSize: number;
+        };
+        /**
+         * ProductDetailRequest
+         * @description Exact read by ASINs, or paged read of one parent's members.
+         */
+        app__api__openapi__schemas__product_detail__ProductDetailRequest: {
             /**
-             * Sortby
-             * @description Sort field (matches response field names)
-             * @default sampleAvgMonthlyRevenue
-             * @enum {string}
+             * Asins
+             * @description Exact-read mode: 1-50 canonical ASINs (^[A-Z0-9]{10}$), answered in request order. Mutually exclusive with parentAsin.
              */
-            sortBy: "totalSkuCount" | "sampleSkuCount" | "sampleAvgPrice" | "sampleAvgMonthlySales" | "sampleAvgMonthlyRevenue" | "sampleTotalMonthlySales" | "sampleAvgBsr" | "sampleAvgRating" | "sampleAvgRatingCount" | "sampleBrandCount" | "sampleSellerCount" | "sampleFbaRate" | "sampleNewSkuRate" | "topAvgMonthlySales" | "topAvgMonthlyRevenue" | "topSalesRate" | "topBrandSalesRate" | "topSellerSalesRate";
+            asins?: string[] | null;
             /**
-             * Sortorder
-             * @description Sort direction: asc or desc
-             * @default desc
-             * @enum {string}
+             * Parentasin
+             * @description Parent-member mode: every product whose parentAsin equals this value, paged, ordered by monthlySalesFloor desc (nulls last) then asin. Mutually exclusive with asins. A standalone ASIN is its own parent, so it returns itself.
              */
-            sortOrder: "asc" | "desc";
+            parentAsin?: string | null;
+            /**
+             * Marketplace
+             * @description Amazon marketplace code. Only 'US' is currently supported.
+             * @default US
+             * @constant
+             */
+            marketplace: "US";
+            /**
+             * Daterange
+             * @description Omit or 'Nd' (e.g. '30d') for the latest daily snapshot; 'YYYY-MM' for that month's month-end snapshot (earliest 2026-02, latest the most recent completed month). Same rule as /products/search.
+             */
+            dateRange?: string | null;
+            /**
+             * Page
+             * @description parentAsin mode only. Default 1.
+             */
+            page?: number | null;
+            /**
+             * Pagesize
+             * @description parentAsin mode only. Default 20, max 100.
+             */
+            pageSize?: number | null;
         };
         /**
          * CompetitorSearchRequest
@@ -7595,11 +13450,11 @@ export interface components {
             asin?: string;
             /**
              * Marketplace
-             * @description Amazon marketplace code
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
             /** @description Category hierarchy from root to current level (e.g., ['Electronics', 'Computers', 'Laptops']) */
             categoryPath?: string[];
             /** @description Minimum number of sellers. Example: 1. */
@@ -7645,7 +13500,7 @@ export interface components {
              * @default monthlySalesFloor
              * @enum {string}
              */
-            sortBy: "monthlySalesFloor" | "monthlyRevenueFloor" | "bsr" | "price" | "rating" | "ratingCount" | "listingDate";
+            sortBy: "monthlySalesFloor" | "monthlyRevenueFloor" | "salesGrowthRate" | "bsrGrowthRate" | "bsr" | "price" | "rating" | "ratingCount" | "listingDate" | "grossMarginRate" | "monthlyRevenueGrowthRate" | "bsrGrowth";
             /**
              * Sortorder
              * @description Sort direction: asc or desc
@@ -7665,11 +13520,11 @@ export interface components {
             dateRange?: string;
             /**
              * Marketplace
-             * @description Amazon marketplace code
+             * @description Amazon marketplace code. Only 'US' is currently supported.
              * @default US
-             * @enum {string}
+             * @constant
              */
-            marketplace: "US" | "UK";
+            marketplace: "US";
             /** @description Category hierarchy from root to current level (e.g., ['Electronics', 'Computers', 'Laptops']) */
             categoryPath?: string[];
             /**
@@ -7678,6 +13533,13 @@ export interface components {
              * @default false
              */
             onlyCategoryRank: boolean;
+            /**
+             * Categoryscope
+             * @description includeChildren (default): categoryPath matches the given levels, so every subcategory is included. exactOnly: the product's category path must end at the last given level. Ignored without categoryPath; exactOnly without categoryPath is rejected with category_scope_requires_category_path.
+             * @default includeChildren
+             * @enum {string}
+             */
+            categoryScope: "includeChildren" | "exactOnly";
             /** @description Minimum monthly sales floor. Units sold. Example: 100. */
             monthlySalesMin?: number;
             /** @description Maximum monthly sales floor. Units sold. Example: 5000. */
@@ -7706,6 +13568,18 @@ export interface components {
             bsrGrowthRateMin?: number;
             /** @description Maximum BSR growth rate as decimal. */
             bsrGrowthRateMax?: number;
+            /** @description Minimum monthly revenue growth rate as decimal: today's monthlyRevenueFloor vs the same-basis value 30 days earlier, minus 1. About 3.7% of products have a value. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value. */
+            monthlyRevenueGrowthRateMin?: number;
+            /** @description Maximum monthly revenue growth rate as decimal (see monthlyRevenueGrowthRateMin). */
+            monthlyRevenueGrowthRateMax?: number;
+            /** @description Minimum 7-day main-category BSR change = rank 7 days ago − rank today; positive means the rank improved. bsrGrowthMin=1000 keeps products that moved up at least 1000 places. Negative allowed. About 70.7% of products have a value. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. */
+            bsrGrowthMin?: number;
+            /** @description Maximum 7-day main-category BSR change (see bsrGrowthMin). */
+            bsrGrowthMax?: number;
+            /** @description Minimum 7-day sub-category BSR change (rank 7 days ago − rank today; positive = improved). Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. */
+            subBsrGrowthMin?: number;
+            /** @description Maximum 7-day sub-category BSR change (see subBsrGrowthMin). */
+            subBsrGrowthMax?: number;
             /** @description Minimum product price. Example: 9.99. */
             priceMin?: number;
             /** @description Maximum product price. Example: 99.99. */
@@ -7748,10 +13622,20 @@ export interface components {
             ratingToSalesRateMin?: number;
             /** @description Maximum rating-to-sales rate as decimal. Example: 0.5. */
             ratingToSalesRateMax?: number;
-            /** @description Minimum Listing Quality Score */
+            /** @description Minimum Listing Quality Score. No data in the source currently. */
             lqsMin?: number;
-            /** @description Maximum Listing Quality Score */
+            /** @description Maximum Listing Quality Score. No data in the source currently. */
             lqsMax?: number;
+            /** @description Minimum package weight in ounces (page 'Item Weight' converted; same unit as /markets/search). About 31.4% of products have a value. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value. */
+            packageWeightMin?: number;
+            /** @description Maximum package weight in ounces (see packageWeightMin). */
+            packageWeightMax?: number;
+            /** @description Package size tiers (US 2024-25 FBA tiers): smallStandard, largeStandard, largeBulky, extraLarge. Mostly inferred from weight alone (dimensions cover ~2% of products), so a light but long item can be classed smallStandard. About 31.4% of products have a tier. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. */
+            packageSizeTypes?: ("smallStandard" | "largeStandard" | "largeBulky" | "extraLarge")[];
+            /** @description Minimum gross margin rate, 0-1: (price − FBA fee) ÷ price; excludes referral fee and cost of goods. Products with unknown FBA fee are excluded. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. Populated from the 2026-09-16 snapshot onward; month-end snapshots (dateRange='YYYY-MM') before that have no value. */
+            grossMarginRateMin?: number;
+            /** @description Maximum gross margin rate, 0-1 (see grossMarginRateMin). */
+            grossMarginRateMax?: number;
             /** @description Minimum number of sellers. Example: 1. */
             sellerCountMin?: number;
             /** @description Maximum number of sellers. Example: 20. */
@@ -7764,6 +13648,8 @@ export interface components {
             includeSellers?: string[];
             /** @description Seller names to exclude. */
             excludeSellers?: string[];
+            /** @description Buy Box seller country codes, two uppercase letters each, e.g. ['CN', 'US']. About 88.7% of products have a value. Setting this excludes products whose value is unknown — a narrower candidate set, not a market finding. */
+            buyBoxSellerCountryCodes?: string[];
             /** @description Fulfillment filter. Example: ['FBA', 'FBM']. */
             fulfillments?: ("AMZ" | "FBA" | "FBM")[];
             /** @description Include products with these badges. Example: ['bestSeller', 'amazonChoice', 'newRelease', 'aPlus', 'video']. */
@@ -7795,7 +13681,7 @@ export interface components {
              * @default monthlySalesFloor
              * @enum {string}
              */
-            sortBy: "monthlySalesFloor" | "monthlyRevenueFloor" | "bsr" | "price" | "rating" | "ratingCount" | "listingDate";
+            sortBy: "monthlySalesFloor" | "monthlyRevenueFloor" | "salesGrowthRate" | "bsrGrowthRate" | "bsr" | "price" | "rating" | "ratingCount" | "listingDate" | "grossMarginRate" | "monthlyRevenueGrowthRate" | "bsrGrowth";
             /**
              * Sortorder
              * @description Sort direction: asc or desc
@@ -7831,7 +13717,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_Union_UsdAccountBalance__CreditAccountBalance__"];
+                    "application/json": components["schemas"]["OpenApiResponse_Union_UsdAccountBalance__CreditAccountBalanceWithUsd__CreditAccountBalance__"];
                 };
             };
         };
@@ -7849,6 +13735,57 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["app__api__openapi__schemas__products__ProductSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_list_Product__"];
+                };
+            };
+            /** @description Request exceeded the 120s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 120s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_products_leaderboard: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryLeaderboardRequest"];
             };
         };
         responses: {
@@ -7989,6 +13926,108 @@ export interface operations {
             };
         };
     };
+    openapi_v2_products_sales_trend: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSalesTrendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_ProductSalesTrend_"];
+                };
+            };
+            /** @description Request exceeded the 10s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 10s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_products_detail: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__api__openapi__schemas__product_detail__ProductDetailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_Union_ProductDetailBatch__ProductDetailParentPage__"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     openapi_v2_markets_search: {
         parameters: {
             query?: never;
@@ -8001,7 +14040,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["app__api__openapi__schemas__markets__MarketSearchRequest"];
+                "application/json": components["schemas"]["app__api__openapi__market_search_request_models_v2__MarketSearchRequest"];
             };
         };
         responses: {
@@ -8011,7 +14050,109 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_Market__"];
+                    "application/json": components["schemas"]["OpenApiResponse_list_MarketRow__"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_markets_structure_profile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketStructureRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_MarketStructure_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_markets_history: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarketHistoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_MarketHistory_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -8142,7 +14283,7 @@ export interface operations {
             };
         };
     };
-    openapi_v2_reviews_analysis: {
+    openapi_v2_realtime_bestsellers: {
         parameters: {
             query?: never;
             header?: {
@@ -8154,7 +14295,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewAnalysisSearch"];
+                "application/json": components["schemas"]["AmazonRealtimeBestsellersQuery"];
             };
         };
         responses: {
@@ -8164,7 +14305,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_ReviewAnalysis_"];
+                    "application/json": components["schemas"]["OpenApiResponse_AmazonRealtimeBestsellers_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -8240,6 +14381,189 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_voc_analysis: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewAnalysisSearch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_ReviewAnalysis_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_voc_trend: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VocTrendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_VocTrend_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_voc_watchlist_add: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchlistAsinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_WatchlistMutationDTO_"];
+                };
+            };
+        };
+    };
+    openapi_v2_voc_watchlist_list: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WatchlistListRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_WatchlistListDTO_"];
+                };
+            };
+        };
+    };
+    openapi_v2_voc_watchlist_remove: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchlistAsinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_WatchlistMutationDTO_"];
                 };
             };
         };
@@ -8738,7 +15062,7 @@ export interface operations {
             };
         };
     };
-    openapi_v2_keyword_detail: {
+    openapi_v2_product_traffic_terms_trend: {
         parameters: {
             query?: never;
             header?: {
@@ -8750,7 +15074,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["KeywordDetailRequest"];
+                "application/json": components["schemas"]["ProductTrafficTermsTimelineRequest"];
             };
         };
         responses: {
@@ -8760,7 +15084,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_Union_KeywordDetailItem__NoneType__"];
+                    "application/json": components["schemas"]["OpenApiResponse_ProductTrafficTermsTimelineData_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -8789,7 +15113,7 @@ export interface operations {
             };
         };
     };
-    openapi_v2_keyword_trend: {
+    openapi_v2_product_traffic_structure_profile: {
         parameters: {
             query?: never;
             header?: {
@@ -8801,7 +15125,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["KeywordTrendRequest"];
+                "application/json": components["schemas"]["ProductTrafficTermsProfileRequest"];
             };
         };
         responses: {
@@ -8811,109 +15135,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_KeywordTrendItem__"];
-                };
-            };
-            /** @description Request exceeded the 60s timeout for this endpoint. */
-            504: {
-                headers: {
-                    /** @description The declared timeout in seconds for this endpoint. */
-                    "X-Timeout-Seconds"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "success": false,
-                     *       "error": {
-                     *         "code": "REQUEST_TIMEOUT",
-                     *         "message": "Request exceeded the 60s timeout for this endpoint."
-                     *       },
-                     *       "meta": {
-                     *         "requestId": "req_abc123",
-                     *         "timestamp": "2026-04-23T12:00:00Z"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    openapi_v2_keyword_search_results: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
-                Authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KeywordSearchResultsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_KeywordSearchResultItem__"];
-                };
-            };
-            /** @description Request exceeded the 60s timeout for this endpoint. */
-            504: {
-                headers: {
-                    /** @description The declared timeout in seconds for this endpoint. */
-                    "X-Timeout-Seconds"?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "success": false,
-                     *       "error": {
-                     *         "code": "REQUEST_TIMEOUT",
-                     *         "message": "Request exceeded the 60s timeout for this endpoint."
-                     *       },
-                     *       "meta": {
-                     *         "requestId": "req_abc123",
-                     *         "timestamp": "2026-04-23T12:00:00Z"
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    openapi_v2_keyword_extends: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
-                Authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KeywordExtendsRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_KeywordExtendItem__"];
+                    "application/json": components["schemas"]["OpenApiResponse_ProductTrafficTermsProfileData_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -8964,7 +15186,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_AsinKeywordItem__"];
+                    "application/json": components["schemas"]["OpenApiResponse_AsinKeywordsData_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -8993,7 +15215,7 @@ export interface operations {
             };
         };
     };
-    openapi_v2_competitor_product_keywords: {
+    openapi_v2_product_traffic_trend: {
         parameters: {
             query?: never;
             header?: {
@@ -9005,7 +15227,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AsinKeywordsRequest"];
+                "application/json": components["schemas"]["ProductTrafficTrendRequest"];
             };
         };
         responses: {
@@ -9015,7 +15237,364 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OpenApiResponse_list_AsinKeywordItem__"];
+                    "application/json": components["schemas"]["OpenApiResponse_ProductTrafficTrendData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_product_traffic_trend_profile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductTrafficTrendProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_ProductTrafficTrendProfileData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_detail: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordDetailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordDetailData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_market_profile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordMarketProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordMarketProfileData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_trend: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordTrendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordTrendData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_trend_profile: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordTrendProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordTrendProfileData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_search_results: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordSearchResultsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordSearchResultsData_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_keyword_extends: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordExtendsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_KeywordExtendsData_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
@@ -9428,6 +16007,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OpenApiResponse_TikTokRealtimeProduct_"];
+                };
+            };
+            /** @description Request exceeded the 60s timeout for this endpoint. */
+            504: {
+                headers: {
+                    /** @description The declared timeout in seconds for this endpoint. */
+                    "X-Timeout-Seconds"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "success": false,
+                     *       "error": {
+                     *         "code": "REQUEST_TIMEOUT",
+                     *         "message": "Request exceeded the 60s timeout for this endpoint."
+                     *       },
+                     *       "meta": {
+                     *         "requestId": "req_abc123",
+                     *         "timestamp": "2026-04-23T12:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    openapi_v2_tiktok_realtime_video: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description API key for authentication. Format: `Bearer hms_xxx`. Get your key from the API Keys page. */
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TikTokRealtimeVideoQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenApiResponse_TikTokRealtimeVideo_"];
                 };
             };
             /** @description Request exceeded the 60s timeout for this endpoint. */
