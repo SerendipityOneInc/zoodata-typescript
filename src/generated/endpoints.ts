@@ -11,32 +11,72 @@ export function makeEndpoints(http: HttpClient) {
     http.request({ method: "GET", path: "/openapi/v2/account/balance" });
   const ecommerceAmazonProductsSearch = (body: paths["/openapi/v2/products/search"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/search"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/products/search", body });
+  const ecommerceAmazonProductsLeaderboard = (body: paths["/openapi/v2/products/leaderboard"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/leaderboard"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/products/leaderboard", body });
   const ecommerceAmazonProductsCompetitors = (body: paths["/openapi/v2/products/competitors"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/competitors"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/products/competitors", body });
   const ecommerceAmazonProductsHistory = (body: paths["/openapi/v2/products/history"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/history"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/products/history", body });
+  const ecommerceAmazonProductsSalesTrend = (body: paths["/openapi/v2/products/sales-trend"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/sales-trend"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/products/sales-trend", body });
+  const ecommerceAmazonProductsDetail = (body: paths["/openapi/v2/products/detail"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/products/detail"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/products/detail", body });
   const ecommerceAmazonMarketsSearch = (body: paths["/openapi/v2/markets/search"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/search"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/markets/search", body });
+  const ecommerceAmazonMarketsHistory = (body: paths["/openapi/v2/markets/history"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/history"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/history", body });
+  const ecommerceAmazonMarketsProfile = (body: paths["/openapi/v2/markets/profile"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/profile"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/profile", body });
+  const ecommerceAmazonMarketsPriceDistributions = (body: paths["/openapi/v2/markets/price-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/price-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/price-distributions", body });
+  const ecommerceAmazonMarketsRatingDistributions = (body: paths["/openapi/v2/markets/rating-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/rating-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/rating-distributions", body });
+  const ecommerceAmazonMarketsRatingCountDistributions = (body: paths["/openapi/v2/markets/rating-count-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/rating-count-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/rating-count-distributions", body });
+  const ecommerceAmazonMarketsListingAgeDistributions = (body: paths["/openapi/v2/markets/listing-age-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/listing-age-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/listing-age-distributions", body });
+  const ecommerceAmazonMarketsFulfillmentDistributions = (body: paths["/openapi/v2/markets/fulfillment-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/fulfillment-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/fulfillment-distributions", body });
+  const ecommerceAmazonMarketsSellerCountryDistributions = (body: paths["/openapi/v2/markets/seller-country-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/seller-country-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/seller-country-distributions", body });
+  const ecommerceAmazonMarketsContentDistributions = (body: paths["/openapi/v2/markets/content-distributions"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/content-distributions"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/content-distributions", body });
+  const ecommerceAmazonMarketsTopProductConcentrations = (body: paths["/openapi/v2/markets/top-product-concentrations"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/top-product-concentrations"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/top-product-concentrations", body });
+  const ecommerceAmazonMarketsBrandConcentrations = (body: paths["/openapi/v2/markets/brand-concentrations"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/brand-concentrations"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/brand-concentrations", body });
+  const ecommerceAmazonMarketsSellerConcentrations = (body: paths["/openapi/v2/markets/seller-concentrations"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/seller-concentrations"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/seller-concentrations", body });
+  const ecommerceAmazonMarketsListingLaunchTrend = (body: paths["/openapi/v2/markets/listing-launch-trend"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/markets/listing-launch-trend"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/markets/listing-launch-trend", body });
   const ecommerceAmazonCategories = (body: paths["/openapi/v2/categories"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/categories"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/categories", body });
   const ecommerceAmazonReviewsRealtime = (body: paths["/openapi/v2/realtime/reviews"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/realtime/reviews"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/realtime/reviews", body });
-  const ecommerceAmazonReviewsAnalysis = (body: paths["/openapi/v2/reviews/analysis"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/reviews/analysis"]["post"]["responses"][200]["content"]["application/json"]> =>
-    http.request({ method: "POST", path: "/openapi/v2/reviews/analysis", body });
   const ecommerceAmazonReviewsSearch = (body: paths["/openapi/v2/reviews/search"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/reviews/search"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/reviews/search", body });
+  const ecommerceAmazonKeywordsProductTrafficTermsTrend = (body: paths["/openapi/v2/keywords/product-traffic-terms-trend"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-terms-trend"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-terms-trend", body });
+  const ecommerceAmazonKeywordsProductTrafficStructureProfile = (body: paths["/openapi/v2/keywords/product-traffic-structure-profile"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-structure-profile"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-structure-profile", body });
+  const ecommerceAmazonKeywordsProductTrafficTerms = (body: paths["/openapi/v2/keywords/product-traffic-terms"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-terms"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-terms", body });
+  const ecommerceAmazonKeywordsProductTrafficTrend = (body: paths["/openapi/v2/keywords/product-traffic-trend"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-trend"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-trend", body });
+  const ecommerceAmazonKeywordsProductTrafficTrendProfile = (body: paths["/openapi/v2/keywords/product-traffic-trend-profile"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-trend-profile"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-trend-profile", body });
   const ecommerceAmazonKeywordsDetail = (body: paths["/openapi/v2/keywords/detail"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/detail"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/keywords/detail", body });
+  const ecommerceAmazonKeywordsMarketProfile = (body: paths["/openapi/v2/keywords/market-profile"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/market-profile"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/market-profile", body });
   const ecommerceAmazonKeywordsTrend = (body: paths["/openapi/v2/keywords/trend"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/trend"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/keywords/trend", body });
+  const ecommerceAmazonKeywordsTrendProfile = (body: paths["/openapi/v2/keywords/trend-profile"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/trend-profile"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/keywords/trend-profile", body });
   const ecommerceAmazonKeywordsSearchResults = (body: paths["/openapi/v2/keywords/search-results"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/search-results"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/keywords/search-results", body });
   const ecommerceAmazonKeywordsExtends = (body: paths["/openapi/v2/keywords/extends"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/extends"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/keywords/extends", body });
-  const ecommerceAmazonKeywordsProductTrafficTerms = (body: paths["/openapi/v2/keywords/product-traffic-terms"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/product-traffic-terms"]["post"]["responses"][200]["content"]["application/json"]> =>
-    http.request({ method: "POST", path: "/openapi/v2/keywords/product-traffic-terms", body });
-  const ecommerceAmazonKeywordsCompetitorProductKeywords = (body: paths["/openapi/v2/keywords/competitor-product-keywords"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/keywords/competitor-product-keywords"]["post"]["responses"][200]["content"]["application/json"]> =>
-    http.request({ method: "POST", path: "/openapi/v2/keywords/competitor-product-keywords", body });
   const scrape = (body: paths["/openapi/v2/webtools/scrape"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/webtools/scrape"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/webtools/scrape", body });
   const webtoolsScrapeInteractive = (body: paths["/openapi/v2/webtools/scrape-interactive"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/webtools/scrape-interactive"]["post"]["responses"][200]["content"]["application/json"]> =>
@@ -53,6 +93,8 @@ export function makeEndpoints(http: HttpClient) {
     http.request({ method: "POST", path: "/openapi/v2/tiktok/products/search", body });
   const ecommerceTiktokProductsRealtime = (body: paths["/openapi/v2/tiktok/realtime/product"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/tiktok/realtime/product"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/tiktok/realtime/product", body });
+  const ecommerceTiktokRealtimeVideo = (body: paths["/openapi/v2/tiktok/realtime/video"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/tiktok/realtime/video"]["post"]["responses"][200]["content"]["application/json"]> =>
+    http.request({ method: "POST", path: "/openapi/v2/tiktok/realtime/video", body });
   const ecommerceTiktokCreatorsSearch = (body: paths["/openapi/v2/tiktok/creators/search"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/tiktok/creators/search"]["post"]["responses"][200]["content"]["application/json"]> =>
     http.request({ method: "POST", path: "/openapi/v2/tiktok/creators/search", body });
   const ecommerceTiktokVideosSearch = (body: paths["/openapi/v2/tiktok/videos/search"]["post"]["requestBody"]["content"]["application/json"]): Promise<paths["/openapi/v2/tiktok/videos/search"]["post"]["responses"][200]["content"]["application/json"]> =>
@@ -69,32 +111,55 @@ export function makeEndpoints(http: HttpClient) {
       amazon: {
         products: {
           search: ecommerceAmazonProductsSearch,
+          leaderboard: ecommerceAmazonProductsLeaderboard,
           competitors: ecommerceAmazonProductsCompetitors,
           history: ecommerceAmazonProductsHistory,
+          "sales-trend": ecommerceAmazonProductsSalesTrend,
+          detail: ecommerceAmazonProductsDetail,
           realtime: ecommerceAmazonProductsRealtime
         },
         markets: {
-          search: ecommerceAmazonMarketsSearch
+          search: ecommerceAmazonMarketsSearch,
+          history: ecommerceAmazonMarketsHistory,
+          profile: ecommerceAmazonMarketsProfile,
+          "price-distributions": ecommerceAmazonMarketsPriceDistributions,
+          "rating-distributions": ecommerceAmazonMarketsRatingDistributions,
+          "rating-count-distributions": ecommerceAmazonMarketsRatingCountDistributions,
+          "listing-age-distributions": ecommerceAmazonMarketsListingAgeDistributions,
+          "fulfillment-distributions": ecommerceAmazonMarketsFulfillmentDistributions,
+          "seller-country-distributions": ecommerceAmazonMarketsSellerCountryDistributions,
+          "content-distributions": ecommerceAmazonMarketsContentDistributions,
+          "top-product-concentrations": ecommerceAmazonMarketsTopProductConcentrations,
+          "brand-concentrations": ecommerceAmazonMarketsBrandConcentrations,
+          "seller-concentrations": ecommerceAmazonMarketsSellerConcentrations,
+          "listing-launch-trend": ecommerceAmazonMarketsListingLaunchTrend
         },
         categories: ecommerceAmazonCategories,
         reviews: {
           realtime: ecommerceAmazonReviewsRealtime,
-          analysis: ecommerceAmazonReviewsAnalysis,
           search: ecommerceAmazonReviewsSearch
         },
         keywords: {
-          detail: ecommerceAmazonKeywordsDetail,
-          trend: ecommerceAmazonKeywordsTrend,
-          "search-results": ecommerceAmazonKeywordsSearchResults,
-          extends: ecommerceAmazonKeywordsExtends,
+          "product-traffic-terms-trend": ecommerceAmazonKeywordsProductTrafficTermsTrend,
+          "product-traffic-structure-profile": ecommerceAmazonKeywordsProductTrafficStructureProfile,
           "product-traffic-terms": ecommerceAmazonKeywordsProductTrafficTerms,
-          "competitor-product-keywords": ecommerceAmazonKeywordsCompetitorProductKeywords
+          "product-traffic-trend": ecommerceAmazonKeywordsProductTrafficTrend,
+          "product-traffic-trend-profile": ecommerceAmazonKeywordsProductTrafficTrendProfile,
+          detail: ecommerceAmazonKeywordsDetail,
+          "market-profile": ecommerceAmazonKeywordsMarketProfile,
+          trend: ecommerceAmazonKeywordsTrend,
+          "trend-profile": ecommerceAmazonKeywordsTrendProfile,
+          "search-results": ecommerceAmazonKeywordsSearchResults,
+          extends: ecommerceAmazonKeywordsExtends
         }
       },
       tiktok: {
         products: {
           search: ecommerceTiktokProductsSearch,
           realtime: ecommerceTiktokProductsRealtime
+        },
+        realtime: {
+          video: ecommerceTiktokRealtimeVideo
         },
         creators: {
           search: ecommerceTiktokCreatorsSearch
